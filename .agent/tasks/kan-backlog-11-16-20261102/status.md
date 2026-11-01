@@ -24,5 +24,10 @@ Director moved all six cards to 実装 and claimed/started them as the existing 
 Workers run with KANBAN_TOKEN removed from their environment.
 Director working files: ~/.local/state/agent-native-kanban/backlog-11-16/.
 
+## Board rule
+The board must match reality. When a worker reports and its reviewer starts, the director runs work/complete, moves the card to レビュー and claims/starts the review cycle in the same step, without asking the user. Moving to 完了 still needs the user.
+
+Review claims: KAN-15 01a197f2-671e-7272-ab2c-8f861c5e8bf0
+
 ## Remaining
 Workers are delegated. When a worker reports, start its independent reviewer as in reviewer.md, return blocking findings to the worker, re-review, then ask the user about merging, the review stage and deployment.
