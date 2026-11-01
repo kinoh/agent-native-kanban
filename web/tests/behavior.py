@@ -38,7 +38,7 @@ def discard_task(i):
     if i==2 and state['discard_view']:
         return {**task(2),'work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'needs it','discarded':True}]}}
     return task(i)
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'principal_work_changed':False}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 def principal_work():
@@ -165,7 +165,7 @@ def route(r):
             return
         body={'id':'human-1','kind':'human','display_name':state['display_name'],'email':'auditor@example.test','organization':{'id':'org-1','name':state['organization_name']},'is_org_admin':state['is_org_admin'],'grants':[{'project_id':None,'permission':'admin'}] if state['is_org_admin'] else []}
     elif path=='/projects':
-        body={'projects':[{**project,'stages':[stage,new_stage] if state['moved'] else [stage]}]}
+        body={'projects':[{**project,'stages':state['stages'] or ([stage,new_stage] if state['moved'] else [stage])}]}
     elif path=='/me/inbox': body={'requests':[]}
     elif path=='/principals/work': body=principal_work()
     elif path=='/principals': body={'principals':[human,agent]}
@@ -456,7 +456,7 @@ try:
             assert shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')==collapsed
         results['project_overview_saved_and_shown']=True
         final_stage={**stage,'id':'stage-final','name':'Done','position':2,'requires_work':False,'is_final':True}
-        project['stages'][:] = [stage,final_stage]
+        state['stages']=[stage,final_stage]
         project['description']=''
         state['mode']='discard'
         page.goto(base+'/tasks/DEV-1')
@@ -503,7 +503,7 @@ try:
         assert page.locator('.title-input').evaluate('e=>getComputedStyle(e).textDecorationLine')=='none'
         results['discard_shown_and_restored']=True
         state['mode']='stage'
-        project['stages'][:] = [stage]
+        state['stages']=None
         project['description']='目的: 監査\nrepo: org/audit\n3行目の詳細'
         state['is_org_admin']=False
         page.goto(base+'/projects/DEV/settings')
