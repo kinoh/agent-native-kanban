@@ -64,3 +64,7 @@ Frontend correction delegation: /home/kino/.local/state/herdr-watch/20261101T203
 Guide fixes da77939/c507a21 reviewed; director clarified remaining static permission/payload descriptions and reran access tests (20/20). Seven formatting-only files restored without semantic changes. KAN-5 accepted. Pending live action: finish its existing implementation claim and move to 完了, with commit/test evidence and explicit note that running server has not been restarted. KAN-1–4 remain pending frontend correction and real-backend browser results.
 
 KAN-5 live outcome verified: 完了, unoccupied; implementation summary contains commits/test evidence and no-restart note. Final guide commit 962cdb9. Other cards retain their existing claims.
+
+
+### Final frontend acceptance check
+Received d1df3a7/b6ea70a; director reviewed separation of initial-load and action refresh errors, controlled test results.json (all checks successful, browser_errors empty), and settings_integration.py real-server flows. No remaining implementation blocker found. Before completing KAN-1–4, director will rebuild current backend/frontend and run the isolated real-server browser suite once with durable watcher output; this closes the missing independent integration execution evidence. The script uses generated isolated data, a random loopback port, and closes its own server. Live server remains unchanged.
