@@ -174,6 +174,105 @@ async fn guide_is_public_markdown_and_other_api_data_stays_private() {
 }
 
 #[tokio::test]
+async fn guide_happy_path_is_executable_with_isolated_data() {
+    let app = App::new();
+    let admin = app.organization("Guide Org", "admin@guide.test").await;
+    let project = app.project(&admin, "GUIDE").await;
+    let task = app.task(&admin, &project, &project.implement, "Follow the guide").await;
+    let key = task["key"].as_str().unwrap();
+
+    // The two setup calls shown at the start of the guide create a principal and return its token once.
+    let principal = app
+        .post(
+            &admin,
+            "/principals",
+            json!({
+                "display_name": "Guide agent",
+                "grants": [
+                    { "project_id": project.id, "permission": "claim" },
+                    { "project_id": project.id, "permission": "edit" },
+                ],
+            }),
+        )
+        .await;
+    assert_eq!(principal.status, StatusCode::CREATED, "{:?}", principal.body);
+    let principal_id = principal.body["id"].as_str().unwrap().to_string();
+    let issued = app
+        .post(
+            &admin,
+            &format!("/principals/{principal_id}/tokens"),
+            json!({ "name": "guide-cli" }),
+        )
+        .await;
+    assert_eq!(issued.status, StatusCode::CREATED, "{:?}", issued.body);
+    let agent = Client {
+        id: principal_id,
+        auth: Auth::Bearer(issued.body["token"].as_str().unwrap().to_string()),
+    };
+
+    assert_eq!(app.get(&agent, "/me").await.status, StatusCode::OK);
+    let projects = app.get(&agent, "/projects").await;
+    assert_eq!(projects.status, StatusCode::OK);
+    assert!(projects.body["projects"].as_array().unwrap().iter().any(|item| item["id"] == project.id));
+    let listed = app.get(&agent, &format!("/tasks?project={}&can_claim=true&limit=50&cursor=0", project.id)).await;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["tasks"][0]["key"], key);
+    assert_eq!(app.get(&agent, &format!("/tasks/{key}/context")).await.status, StatusCode::OK);
+
+    let claimed = app.post(&agent, &format!("/tasks/{key}/work/claim"), json!({})).await;
+    assert_eq!(claimed.status, StatusCode::OK, "{:?}", claimed.body);
+    let claim_id = claimed.body["work"]["claim_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        app.post(&agent, &format!("/tasks/{key}/work/start"), json!({ "claim_id": claim_id })).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        app.post(&agent, &format!("/tasks/{key}/comments"), json!({ "kind": "progress", "body": "ready" })).await.status,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        app.post(&agent, &format!("/tasks/{key}/artifacts"), json!({
+            "role": "artifact", "name": "report", "url": "https://example.invalid/report",
+        })).await.status,
+        StatusCode::CREATED
+    );
+    let completed = app
+        .post(
+            &agent,
+            &format!("/tasks/{key}/work/complete"),
+            json!({
+                "claim_id": claim_id,
+                "summary": "complete",
+                "evidence": [{ "name": "report", "url": "https://example.invalid/report" }],
+            }),
+        )
+        .await;
+    assert_eq!(completed.status, StatusCode::OK, "{:?}", completed.body);
+    assert_eq!(completed.body["stage"]["id"], project.implement);
+    assert_eq!(completed.body["work"]["readiness"], "done");
+
+    // The documented delegation request, listing, and issuer revocation all work from this bearer token.
+    let delegated = app
+        .post(
+            &agent,
+            "/me/delegations",
+            json!({
+                "name": "subtask-worker",
+                "expires_at": "2030-01-01T00:00:00Z",
+                "scopes": [{ "project_id": project.id, "permission": "claim" }],
+                "tasks": [key],
+            }),
+        )
+        .await;
+    assert_eq!(delegated.status, StatusCode::CREATED, "{:?}", delegated.body);
+    let token_id = delegated.body["id"].as_str().unwrap();
+    let descendants = app.get(&agent, "/me/delegations").await;
+    assert_eq!(descendants.status, StatusCode::OK);
+    assert!(descendants.body["delegations"].as_array().unwrap().iter().any(|item| item["id"] == token_id));
+    assert_eq!(app.delete(&agent, &format!("/tokens/{token_id}")).await.status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
 async fn organization_administrators_rename_only_their_organization_and_the_change_is_audited() {
     let app = App::new();
     let admin = app.organization("Acme", "admin@acme.test").await;
