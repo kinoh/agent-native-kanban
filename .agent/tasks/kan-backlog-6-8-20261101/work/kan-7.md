@@ -76,3 +76,24 @@ Intended action: stage only the assigned frontend implementation and theme test 
 Completed implementation commit: `6f3b874 ライトとダークの表示テーマを切り替えられるようにする` contains only the assigned frontend implementation and test files.
 
 Intended action: commit this completed work record, verify the branch is clean, then reply to the director with the result, acceptance evidence, artifact paths, and both commit IDs.
+
+Review follow-up (2026-11-01 JST): the implementation is accepted, but the prior `web/tests/theme.py` used uninvoked function expressions for Playwright init scripts. Its saved-theme and EventSource setup therefore did not run. The review also requires real body-content contrast checks across every named screen in both themes, real logout/login persistence, normal localStorage OS fallback in both directions, and test resources that do not reserve KAN-7's fixed port or state directory.
+
+Intended action: replace only `web/tests/theme.py` with a self-contained test using an OS-assigned port and `~/.local/state/agent-native-kanban/theme/`. It will use immediately invoked init scripts, assert saved preference overrides the opposite OS scheme, visit and screenshot every required screen plus signup, calculate contrast for visible body-content text against its effective background, test logout/login persistence, then run the requested build and browser suites before an additional commit.
+
+Check outcome: the first strengthened run built successfully but stopped because the contrast selector omitted the standalone signup card. The test did not leave a server running. The selector now includes the login/signup card's visible content before rerun.
+
+Completed check: `python3 web/tests/theme.py` exited 0 after the selector correction. It ran against an OS-assigned port and stored its screenshots under `~/.local/state/agent-native-kanban/theme/screenshots/`; it verified saved-value priority against the opposite OS theme, every requested screen plus signup in both themes, visible-body-content contrast, modal and error rendering, logout/login persistence, and unsaved light/dark OS fallback.
+
+Intended action: run the requested existing browser regression `python3 web/tests/behavior.py`, then review the screenshot set and commit only the strengthened test and updated work record.
+
+Completed check: `python3 web/tests/behavior.py` exited 0 with no browser errors after the theme-test rewrite. `git diff --check` also passed. The strengthened test produced 24 screenshots at `~/.local/state/agent-native-kanban/theme/screenshots/`: board, list, task detail, inbox, project settings, organization administration, account settings, signup, projects, modal, error, and pre-login board for both explicit themes, plus light/dark OS-fallback boards.
+
+Review acceptance evidence:
+- Playwright init scripts are now immediately invoked and only write the saved preference when absent. Every explicit-theme run supplies the opposite browser OS setting and asserts the saved value wins.
+- The normal-localStorage runs leave the key absent and assert both light and dark OS fallback values.
+- The actual logout endpoint changes the mock session to unauthenticated; the test fills and submits the login form, confirms the session returns, and verifies the selected theme both before and after login.
+- `assert_readable` collects visible text-bearing content from the named screens (including sidebar, inputs, tables, modal, and error note), resolves each element's effective opaque background through its ancestors, and requires a contrast ratio of at least 4.5:1.
+- The intentionally unmeasured non-body/decorative controls are primary buttons (including their `kbd`), link buttons, disabled controls, badges, avatars, priority markers, and work-indicator dots. In particular, the existing dark `button.primary` white-on-`#6e79f0` presentation remains unchanged as required by review.
+
+Intended action: stage only `web/tests/theme.py` and this work record, create one additional non-amended commit, verify a clean branch, then send the review-follow-up report to the director.
