@@ -460,9 +460,9 @@ export function Admin({ session }: { session: Session }) {
             <tr key={principal.id} data-principal={principal.id}>
               <td className="principal-cell">
                 <span className="principal principal-tree" style={{ paddingInlineStart: `${depth * 18}px` }}>
-                  {creator && <span className="principal-creator" aria-label={`作成元 ${creator.display_name}`}>作成元</span>}
                   <Avatar principal={principal} />
-                  {principal.display_name}
+                  <span className="principal-name">{principal.display_name}</span>
+                  {creator && <span className="principal-creator" aria-label={`作成元 ${creator.display_name}`}>作成元 {creator.display_name}</span>}
                 </span>
               </td>
               <td>{principal.kind === "agent" ? "エージェント" : "人間"}</td>
