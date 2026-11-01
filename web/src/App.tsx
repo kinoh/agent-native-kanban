@@ -4,6 +4,7 @@ import { navigate, usePath } from "./router";
 import type { InboxItem, Me, Project } from "./types";
 import { isTyping } from "./ui";
 import { Admin } from "./views/Admin";
+import { AccountSettings } from "./views/AccountSettings";
 import { BoardView } from "./views/Board";
 import { Inbox } from "./views/Inbox";
 import { ListView } from "./views/List";
@@ -19,6 +20,7 @@ export interface Session {
   me: Me;
   projects: Project[];
   reloadProjects: () => Promise<void>;
+  reloadMe: () => Promise<void>;
 }
 
 function Help({ onClose }: { onClose: () => void }) {
@@ -68,7 +70,7 @@ function NavLink({ to, label, current, badge }: { to: string; label: string; cur
   );
 }
 
-function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
+function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloadMe: () => Promise<void> }) {
   const path = usePath();
   const [projects, setProjects] = useState<Project[]>([]);
   const [inbox, setInbox] = useState(0);
@@ -139,15 +141,17 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [currentProject]);
 
-  const session: Session = { me, projects, reloadProjects };
+  const session: Session = { me, projects, reloadProjects, reloadMe };
   const taskMatch = path.match(/^\/tasks\/([^/]+)/);
   let content;
   if (taskMatch) {
     content = <TaskDetail key={taskMatch[1]} reference={taskMatch[1]} session={session} />;
   } else if (path === "/inbox") {
     content = <Inbox />;
-  } else if (path === "/admin") {
+  } else if (path === "/admin" && me.is_org_admin) {
     content = <Admin session={session} />;
+  } else if (path === "/settings" && me.kind === "human") {
+    content = <AccountSettings session={session} />;
   } else if (currentProject && path.endsWith("/board")) {
     content = <BoardView project={currentProject} />;
   } else if (currentProject && path.endsWith("/list")) {
@@ -175,7 +179,7 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
         {me.is_org_admin && <NavLink to="/admin" label="組織の管理" current={path} />}
         <div className="spacer" />
         <div className="me">
-          <span>{me.display_name}</span>
+          {me.kind === "human" ? <NavLink to="/settings" label={me.display_name} current={path} /> : <span>{me.display_name}</span>}
           <button className="link" onClick={onLogout}>
             ログアウト
           </button>
@@ -204,17 +208,18 @@ export function App() {
         setMe(null);
       } else {
         setFatal((error as Error).message);
+        throw error;
       }
     }
   }, []);
 
   useEffect(() => {
-    void reload();
+    void reload().catch(() => undefined);
   }, [reload]);
 
   const signup = path.match(/^\/signup\/([^/]+)$/);
   if (signup) {
-    return <Signup token={signup[1]} onDone={() => void reload().then(() => navigate("/"))} />;
+    return <Signup token={signup[1]} onDone={() => void reload().then(() => navigate("/")).catch(() => undefined)} />;
   }
   if (fatal) {
     return <div className="center-card error-note">{fatal}</div>;
@@ -223,11 +228,12 @@ export function App() {
     return null;
   }
   if (me === null) {
-    return <Login onDone={() => void reload()} />;
+    return <Login onDone={() => void reload().catch(() => undefined)} />;
   }
   return (
     <Shell
       me={me}
+      reloadMe={reload}
       onLogout={() =>
         void api.post("/auth/logout").then(() => {
           setMe(null);

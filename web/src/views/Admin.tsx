@@ -197,6 +197,96 @@ function GrantEditor({
   );
 }
 
+function RenamePrincipal({
+  principal,
+  onClose,
+  onSaved,
+}: {
+  principal: Principal;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [name, setName] = useState(principal.display_name);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim()) {
+      setError("表示名を入力してください");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch(`/principals/${principal.id}`, { display_name: name.trim() });
+      await onSaved();
+      onClose();
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="表示名を変更" onClose={onClose}>
+      <form onSubmit={(event) => void save(event)}>
+        <label>
+          表示名
+          <input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} required />
+        </label>
+        <div className="actions">
+          <button className="primary" disabled={saving}>{saving ? "保存中" : "表示名を保存"}</button>
+          <button type="button" onClick={onClose} disabled={saving}>キャンセル</button>
+        </div>
+        <ErrorNote message={error} />
+      </form>
+    </Modal>
+  );
+}
+
+function OrganizationName({ session }: { session: Session }) {
+  const [name, setName] = useState(session.me.organization.name);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => setName(session.me.organization.name), [session.me.organization.name]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!name.trim()) {
+      setError("組織名を入力してください");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await api.patch("/organization", { name: name.trim() });
+      await session.reloadMe();
+      setSaved(true);
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section>
+      <h2>組織名</h2>
+      <form className="inline-form" onSubmit={(event) => void save(event)}>
+        <input aria-label="組織名" value={name} maxLength={100} onChange={(event) => setName(event.target.value)} required />
+        <button className="primary" disabled={saving}>{saving ? "保存中" : "組織名を保存"}</button>
+      </form>
+      {saved && <p className="success-note" role="status">保存しました</p>}
+      <ErrorNote message={error} />
+    </section>
+  );
+}
+
 export function Admin({ session }: { session: Session }) {
   const [principals, setPrincipals] = useState<Principal[]>([]);
   const [links, setLinks] = useState<SignupLink[]>([]);
@@ -208,6 +298,7 @@ export function Admin({ session }: { session: Session }) {
   const [grantProject, setGrantProject] = useState("");
   const [issued, setIssued] = useState<string | null>(null);
   const [editing, setEditing] = useState<Principal | null>(null);
+  const [renaming, setRenaming] = useState<Principal | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -219,10 +310,11 @@ export function Admin({ session }: { session: Session }) {
       setLinks(signup.signup_links);
     } catch (failure) {
       setError((failure as Error).message);
+      throw failure;
     }
   }, []);
   useEffect(() => {
-    void reload();
+    void reload().catch(() => undefined);
   }, [reload]);
 
   const run = async (action: () => Promise<unknown>) => {
@@ -262,6 +354,8 @@ export function Admin({ session }: { session: Session }) {
         <h1>組織の管理</h1>
       </header>
       <ErrorNote message={error} />
+
+      <OrganizationName session={session} />
 
       <h2>サインアップリンク</h2>
       <p className="muted">
@@ -330,6 +424,7 @@ export function Admin({ session }: { session: Session }) {
               <td>
                 {principal.status !== "deleted" && (
                   <>
+                    <button className="link" onClick={() => setRenaming(principal)}>表示名を変更</button>
                     <button className="link" onClick={() => setEditing(principal)}>権限</button>
                     <button
                       className="link"
@@ -361,6 +456,16 @@ export function Admin({ session }: { session: Session }) {
         </tbody>
       </table>
       {editing && <GrantEditor session={session} principal={editing} onClose={() => setEditing(null)} />}
+      {renaming && (
+        <RenamePrincipal
+          principal={renaming}
+          onClose={() => setRenaming(null)}
+          onSaved={async () => {
+            await reload();
+            if (renaming.id === session.me.id) await session.reloadMe();
+          }}
+        />
+      )}
     </div>
   );
 }

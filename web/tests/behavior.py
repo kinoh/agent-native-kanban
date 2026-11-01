@@ -31,8 +31,9 @@ project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','s
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
     return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','work':work}
-state={'mode':'many','moved':False}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
+human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 FUTURE='2099-01-01T00:00:00.000Z'
 def token(id,name,**fields):
     return {'id':id,'name':name,'created_at':'2026-11-01T00:00:00.000Z','expires_at':None,'revoked_at':None,'parent_token_id':None,**fields}
@@ -47,17 +48,46 @@ requests=[]
 def route(r):
     path=r.request.url.split('/api/v1',1)[1]
     requests.append(path)
+    if r.request.method=='PATCH' and path=='/me':
+        body=r.request.post_data_json
+        assert set(body)=={'display_name'}
+        state['display_name']=body['display_name'].strip()
+        human['display_name']=state['display_name']
+        r.fulfill(status=200,content_type='application/json',body=json.dumps({}))
+        return
+    if r.request.method=='PUT' and path=='/me/password':
+        body=r.request.post_data_json
+        if body['current_password']=='wrong password':
+            r.fulfill(status=401,content_type='application/json',body=json.dumps({'error':{'code':'unauthenticated','message':'current password is incorrect'}}))
+        else:
+            r.fulfill(status=204)
+        return
+    if r.request.method=='PATCH' and path=='/organization':
+        body=r.request.post_data_json
+        assert set(body)=={'name'}
+        state['organization_name']=body['name'].strip()
+        r.fulfill(status=200,content_type='application/json',body=json.dumps({'id':'org-1','name':state['organization_name']}))
+        return
+    if r.request.method=='PATCH' and path.startswith('/principals/'):
+        principal_id=path.rsplit('/',1)[1]
+        body=r.request.post_data_json
+        if 'display_name' in body:
+            target=human if principal_id=='human-1' else agent
+            target['display_name']=body['display_name'].strip()
+            if principal_id=='human-1': state['display_name']=target['display_name']
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(human if principal_id=='human-1' else agent))
+        return
     if r.request.method=='DELETE' and path.startswith('/tokens/'):
         match=next(t for t in tokens if t['id']==path.rsplit('/',1)[1])
         match['revoked_at']='2026-11-01T00:00:00.000Z'
         r.fulfill(status=204)
         return
     if path=='/me':
-        body={'id':'human-1','kind':'human','display_name':'Auditor','email':None,'organization':{'id':'org-1','name':'Audit'},'is_org_admin':True,'grants':[{'project_id':None,'permission':'admin'}]}
+        body={'id':'human-1','kind':'human','display_name':state['display_name'],'email':'auditor@example.test','organization':{'id':'org-1','name':state['organization_name']},'is_org_admin':state['is_org_admin'],'grants':[{'project_id':None,'permission':'admin'}] if state['is_org_admin'] else []}
     elif path=='/projects':
         body={'projects':[{**project,'stages':[stage,new_stage] if state['moved'] else [stage]}]}
     elif path=='/me/inbox': body={'requests':[]}
-    elif path=='/principals': body={'principals':[agent]}
+    elif path=='/principals': body={'principals':[human,agent]}
     elif path=='/signup-links': body={'signup_links':[]}
     elif path=='/principals/agent-1/grants': body={'grants':[]}
     elif path=='/principals/agent-1/tokens': body={'tokens':tokens}
@@ -155,7 +185,7 @@ try:
         assert page.locator('.history .badge').get_attribute('title')=='委譲トークン live-token-bbbbbbbb'
         results['delegated_history']=True
         page.goto(base+'/admin')
-        page.get_by_role('button',name='権限',exact=True).click()
+        page.get_by_role('button',name='権限',exact=True).last.click()
         rows=page.get_by_role('list',name='発行済みのトークン').get_by_role('listitem')
         rows.first.wait_for()
         def row(name): return rows.filter(has=page.get_by_text(name,exact=True))
@@ -177,6 +207,59 @@ try:
             row('main').get_by_role('button',name='失効').click()
         live.get_by_text('親トークンが無効',exact=True).wait_for()
         results['delegated_tokens']=True
+        page.goto(base+'/settings')
+        page.get_by_label('表示名',exact=True).fill('Renamed Auditor')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/me')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.get_by_text('保存しました',exact=True).wait_for()
+        assert page.locator('.sidebar').get_by_role('link',name='Renamed Auditor',exact=True).count()==1
+        page.get_by_label('現在のパスワード').fill('wrong password')
+        page.get_by_label('新しいパスワード',exact=True).fill('a valid password')
+        page.get_by_label('新しいパスワードを確認').fill('different password')
+        page.get_by_role('button',name='パスワードを変更',exact=True).click()
+        page.get_by_text('新しいパスワードが一致しません',exact=True).wait_for()
+        page.get_by_label('新しいパスワードを確認').fill('a valid password')
+        with page.expect_response(lambda r:r.request.method=='PUT' and r.url.endswith('/api/v1/me/password')):
+            page.get_by_role('button',name='パスワードを変更',exact=True).click()
+        page.get_by_text('現在のパスワードが違います',exact=True).wait_for()
+        assert page.get_by_label('現在のパスワード').input_value()=='wrong password'
+        page.get_by_label('現在のパスワード').fill('correct password')
+        with page.expect_response(lambda r:r.request.method=='PUT' and r.url.endswith('/api/v1/me/password')):
+            page.get_by_role('button',name='パスワードを変更',exact=True).click()
+        page.get_by_text('変更しました',exact=True).wait_for()
+        assert page.get_by_label('現在のパスワード').input_value()==''
+        assert page.get_by_label('新しいパスワード',exact=True).input_value()==''
+        results['account_settings']={'profile_refresh':state['display_name'],'password_inputs_cleared':True}
+        page.goto(base+'/admin')
+        page.get_by_label('組織名').fill('Renamed Organization')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/organization')):
+            page.get_by_role('button',name='組織名を保存',exact=True).click()
+        page.get_by_text('保存しました',exact=True).first.wait_for()
+        assert page.locator('.org').inner_text()=='Renamed Organization'
+        agent_rename=page.get_by_role('button',name='表示名を変更',exact=True).last
+        agent_rename.click()
+        page.get_by_label('表示名',exact=True).fill('Canceled Agent')
+        page.get_by_role('button',name='キャンセル',exact=True).click()
+        assert page.get_by_text('Canceled Agent',exact=True).count()==0
+        agent_rename.click()
+        page.get_by_label('表示名',exact=True).fill('Renamed Agent')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/principals/agent-1')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.get_by_text('Renamed Agent').wait_for()
+        page.get_by_role('button',name='表示名を変更',exact=True).first.click()
+        page.get_by_label('表示名',exact=True).fill('Lead Auditor')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/principals/human-1')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).wait_for()
+        assert page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).count()==1
+        results['admin_renames']={'organization_refresh':state['organization_name'],'agent_refresh':agent['display_name'],'self_refresh':state['display_name']}
+        state['is_org_admin']=False
+        page.goto(base+'/projects/DEV/board')
+        page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).wait_for()
+        assert page.get_by_role('link',name='組織の管理',exact=True).count()==0
+        page.goto(base+'/admin')
+        assert page.get_by_label('組織名').count()==0
+        results['general_user_settings']=True
         assert errors==[], errors
         results['browser_errors']=errors
         browser.close()
