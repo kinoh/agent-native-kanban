@@ -25,7 +25,8 @@ Workers run with KANBAN_TOKEN removed from their environment.
 Director working files: ~/.local/state/agent-native-kanban/backlog-11-16/.
 
 ## Board rule
-The board must match reality. When a worker reports and its reviewer starts, the director runs work/complete, moves the card to レビュー and claims/starts the review cycle in the same step, without asking the user. Moving to 完了 still needs the user.
+The board must match reality. When a worker reports, the director runs work/complete and moves the card to レビュー without asking the user. Moving to 完了 still needs the user.
+The director does not claim review work and does not assign reviewers: a reviewer is a principal that takes cards from the レビュー column itself (user correction). Issuing its token needs the user's decision, because the kanban skill forbids issuing tokens; this is pending. KAN-15 is the exception already running, and the claim below is held by the director until that is decided. Implementation claims held by the director for the workers have the same fault.
 
 Review claims: KAN-15 01a197f2-671e-7272-ab2c-8f861c5e8bf0
 
