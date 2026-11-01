@@ -50,3 +50,5 @@ Initial coordination commits: 3aecb3f, df5bcc6. API snapshot and contracts: card
 
 ### Backend review, 2026-11-01
 Received backend report: commits 66a1b2c and 4d56bea. Verified full Rust test watcher succeeded (exit 0). Reviewed new org/self APIs and tests. KAN-5 not accepted: guide has stale-claim example, incorrect re-delegation authority and insufficient endpoint/payload detail; isolated guide walkthrough evidence absent. Backend worker reassigned corrections plus attribution/cleanup of seven formatting-only uncommitted backend files. Frontend still owns its concurrent changes; awaiting its reply.
+
+Correction delegation: /home/kino/.local/state/herdr-watch/20261101T203013-KAN-guide-review-corrections-0ee16c → kan-backend (wK:pB). Await reply notification; do not poll.
