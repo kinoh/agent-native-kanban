@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Session } from "../App";
 import { navigate } from "../router";
 import type { Project, Task } from "../types";
-import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
+import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, formatTime, isTyping } from "../ui";
 import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
 
 function CardBlockers({ task }: { task: Task }) {
@@ -28,6 +28,33 @@ function CardBlockers({ task }: { task: Task }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function LatestReview({ task }: { task: Task }) {
+  const review = task.latest_review_result;
+  return (
+    <div className="card-review">
+      {review ? (
+        <>
+          <span className="card-review-kind">レビュー結果</span>
+          <p>{review.body}</p>
+          <span className="muted">{review.author.display_name} · {formatTime(review.created_at)}</span>
+        </>
+      ) : (
+        <span className="muted">レビュー未実施</span>
+      )}
+      <a
+        href={`/tasks/${task.key}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          navigate(`/tasks/${task.key}`);
+        }}
+      >
+        詳細
+      </a>
+    </div>
   );
 }
 
@@ -77,6 +104,7 @@ function Card({
         )}
       </div>
       <CardBlockers task={task} />
+      <LatestReview task={task} />
     </article>
   );
 }

@@ -148,6 +148,9 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .card-top .avatar { margin-left: auto; }
 .card-title { display: block; margin-bottom: 7px; }
 .card-work { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 11px; }
+.card-review { display: grid; gap: 3px; margin-top: 7px; font-size: 11px; }
+.card-review p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-review-kind { color: var(--muted); font-size: 10px; }
 .occupant { display: inline-flex; gap: 4px; align-items: center; color: var(--nav-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-blockers { list-style: none; margin: 6px 0 0; padding: 0; }
 .card-blocker { display: flex; align-items: baseline; gap: 6px; color: var(--amber); font-size: 11px; overflow-wrap: anywhere; }

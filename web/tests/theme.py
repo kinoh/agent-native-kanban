@@ -41,7 +41,8 @@ independent = {"id": "human-2", "kind": "human", "display_name": "Theme Independ
 
 def task():
     work = {"readiness": "waiting", "claimable": False, "can_claim": False, "claim_permission": "claim", "has_claim_permission": True, "reasons": [{"code": "blocked_by_dependencies", "message": "dependent tasks are not finished"}], "occupant": None, "activity": None, "is_working": False, "acquired_at": None, "claim_id": None, "hold_reason": None, "blockers": [{"id": "task-dependency", "key": "THEME-2", "reason": "レビュー待ち", "discarded": False}], "hidden_blockers": 1}
-    return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "responsible": None, "assignee": None, "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work}
+    review = None if state.get("review_mode") == "none" else {"body": "自由形式のレビュー本文", "author": agent, "created_at": "2026-11-01T00:00:00.000Z"}
+    return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "responsible": None, "assignee": None, "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work, "latest_review_result": review}
 
 
 def api_route(state):
@@ -142,13 +143,15 @@ try:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         for saved_theme, os_theme in (("light", "dark"), ("dark", "light")):
-            state = {"authenticated": True, "tasks_error": False}
+            state = {"authenticated": True, "tasks_error": False, "review_mode": "latest"}
             context = browser.new_context(color_scheme=os_theme)
             context.route("**/api/v1/**", api_route(state))
             context.add_init_script("""(() => { if (localStorage.getItem('agent-native-kanban.theme') === null) localStorage.setItem('agent-native-kanban.theme', '""" + saved_theme + """'); window.EventSource = class { constructor() {} close() {} }; })();""")
             page = context.new_page(); prefix = f"{saved_theme}-"
             for path, ready, name in [("/projects/THEME/board", "[data-task=THEME-1]", "board"), ("/resources", ".resource-card", "resources"), ("/projects/THEME/list", "tbody tr", "list"), ("/tasks/THEME-1", "[aria-label=タイトル]", "task-detail"), ("/inbox", "h1", "inbox"), ("/projects/THEME/settings", ".settings-table", "project-settings"), ("/admin", "h1", "admin"), ("/settings", "h1", "account-settings"), ("/signup/test-token", "h1", "signup")]:
                 verify_page(page, path, ready, saved_theme, f"{prefix}{name}.png")
+            page.goto(f"{base}/projects/THEME/board"); page.get_by_text("自由形式のレビュー本文", exact=True).wait_for()
+            state["review_mode"] = "none"; page.reload(); page.get_by_text("レビュー未実施", exact=True).wait_for(); assert_readable(page, f"{prefix}board-no-review")
             verify_page(page, "/projects", "h1", saved_theme, f"{prefix}projects.png")
             page.get_by_role("button", name="プロジェクトを作成").click(); page.get_by_role("dialog", name="プロジェクトを作成").wait_for()
             assert_readable(page, f"{prefix}modal"); page.screenshot(path=str(SCREENSHOTS / f"{prefix}modal.png"), full_page=True)
@@ -162,9 +165,9 @@ try:
             page.get_by_role("button", name="ログアウト").wait_for(); assert page.locator("html").get_attribute("data-theme") == saved_theme
             context.close()
         for os_theme in ("light", "dark"):
-            state = {"authenticated": True, "tasks_error": False}
+            state = {"authenticated": True, "tasks_error": False, "review_mode": "latest"}
             context = browser.new_context(color_scheme=os_theme); context.route("**/api/v1/**", api_route(state)); context.add_init_script("(() => { window.EventSource = class { constructor() {} close() {} }; })();")
-            page = context.new_page(); verify_page(page, "/projects/THEME/board", "[data-task=THEME-1]", os_theme, f"os-{os_theme}-board.png")
+            page = context.new_page(); verify_page(page, "/projects/THEME/board", "[data-task=THEME-1]", os_theme, f"os-{os_theme}-board.png"); page.get_by_text("自由形式のレビュー本文", exact=True).wait_for()
             assert page.evaluate("localStorage.getItem('agent-native-kanban.theme')") is None; context.close()
         browser.close()
     print(f"theme checks passed; screenshots: {SCREENSHOTS}")
