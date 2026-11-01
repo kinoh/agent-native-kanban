@@ -23,6 +23,7 @@ h2 { font-size: 13px; font-weight: 600; margin: 24px 0 8px; }
 h3 { font-size: 11px; font-weight: 600; margin: 0 0 6px; color: var(--muted); }
 p { margin: 0 0 8px; }
 ul { list-style: none; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 kbd { font: inherit; font-size: 10px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); margin-left: 4px; }
 .muted { color: var(--muted); }
 .key { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -33,6 +34,7 @@ button { cursor: pointer; }
 button:hover:not(:disabled) { border-color: #41444e; background: #25272d; }
 button:disabled { opacity: .4; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary kbd { color: #fff; border-color: rgba(255,255,255,.45); }
 button.primary:hover { background: #7f89f5; border-color: #7f89f5; }
 button.danger { color: var(--red); }
 button.link { border: 0; background: none; color: var(--muted); padding: 0 4px; }

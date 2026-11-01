@@ -15,6 +15,7 @@ import {
   WorkBadge,
   formatTime,
   isTyping,
+  reasonText,
 } from "../ui";
 import { MoveStage, usePrincipals } from "./common";
 
@@ -162,7 +163,7 @@ function WorkPanel({
       {work.reasons.length > 0 && (
         <ul className="reasons">
           {work.reasons.map((reason) => (
-            <li key={reason.code}>{reason.message}</li>
+            <li key={reason.code}>{reasonText(reason, work.hold_reason)}</li>
           ))}
           {work.hidden_blockers > 0 && <li>閲覧権限のない依存タスクが {work.hidden_blockers} 件あります</li>}
         </ul>
@@ -350,10 +351,12 @@ function historyDetail(type: string, data: Record<string, unknown>): string {
 
 function RelationForm({
   taskKey,
+  onSetParent,
   onDone,
   onError,
 }: {
   taskKey: string;
+  onSetParent: (parent: string) => Promise<void>;
   onDone: () => void;
   onError: (message: string) => void;
 }) {
@@ -365,6 +368,8 @@ function RelationForm({
     try {
       if (type === "dependency") {
         await api.post(`/tasks/${taskKey}/dependencies`, { depends_on: other, reason });
+      } else if (type === "parent") {
+        await onSetParent(other);
       } else {
         await api.post(`/tasks/${taskKey}/links`, { related: other });
       }
@@ -380,6 +385,7 @@ function RelationForm({
       <select value={type} onChange={(e) => setType(e.target.value)} aria-label="関係の種類">
         <option value="dependency">依存先を追加</option>
         <option value="link">関連タスクを追加</option>
+        <option value="parent">親タスクを設定</option>
       </select>
       <input placeholder="タスクキー" value={other} onChange={(e) => setOther(e.target.value.toUpperCase())} required />
       {type === "dependency" && <input placeholder="理由" value={reason} onChange={(e) => setReason(e.target.value)} required />}
@@ -491,6 +497,9 @@ export function TaskDetail({ reference, session }: { reference: string; session:
           <section>
             <h3>親タスク</h3>
             <TaskLink task={context.parent} />
+            <button className="link" onClick={() => quietUpdate({ parent: null })}>
+              外す
+            </button>
           </section>
         )}
         {context.children.length > 0 && (
@@ -530,7 +539,7 @@ export function TaskDetail({ reference, session }: { reference: string; session:
               </li>
             ))}
           </ul>
-          <RelationForm taskKey={task.key} onDone={() => void reload()} onError={setError} />
+          <RelationForm taskKey={task.key} onSetParent={(parent) => update({ parent })} onDone={() => void reload()} onError={setError} />
         </section>
 
         <section>

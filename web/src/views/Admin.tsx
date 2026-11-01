@@ -32,6 +32,7 @@ function GrantEditor({
   const [project, setProject] = useState("");
   const [permission, setPermission] = useState<Permission>("view");
   const [token, setToken] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const path = `/principals/${principal.id}`;
 
@@ -82,6 +83,27 @@ function GrantEditor({
         </select>
         <button>権限を追加</button>
       </form>
+      {principal.kind === "human" && (
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run(() => api.put(`${path}/password`, { password })).then(() => setPassword(""));
+          }}
+        >
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={12}
+            placeholder="新しいパスワード（12文字以上）"
+            aria-label="新しいパスワード"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <button>パスワードを再設定</button>
+        </form>
+      )}
       <h3>API トークン</h3>
       <button
         onClick={() =>

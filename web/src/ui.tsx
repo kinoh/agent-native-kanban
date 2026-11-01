@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef } from "react";
 import { navigate } from "./router";
-import type { Priority, PrincipalRef, Task, Work } from "./types";
+import type { BlockReason, Priority, PrincipalRef, Task, Work } from "./types";
 
 export const PRIORITY_LABEL: Record<Priority, string> = {
   urgent: "緊急",
@@ -23,6 +23,23 @@ export const ACTIVITY_LABEL: Record<NonNullable<Work["activity"]>, string> = {
   working: "作業中",
   paused: "一時停止",
 };
+
+const REASON_LABEL: Record<string, string> = {
+  work_done: "この段階の作業は完了しています",
+  no_work_required: "この段階には取得する作業がありません",
+  on_hold: "保留中です",
+  blocked_by_dependencies: "依存タスクが未完了です",
+  occupied_not_started: "他の主体が取得しています",
+  occupied_working: "他の主体が作業中です",
+  occupied_paused: "占有者が一時停止中です",
+  occupant_inactive: "占有者が無効になっています。管理者が解除してください",
+  state_unknown: "記録された状態を解釈できないため、取得できません",
+};
+
+export function reasonText(reason: BlockReason, holdReason: string | null): string {
+  const label = REASON_LABEL[reason.code] ?? reason.message;
+  return reason.code === "on_hold" && holdReason ? `${label}: ${holdReason}` : label;
+}
 
 export function formatTime(value: string): string {
   return new Date(value).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
@@ -66,7 +83,7 @@ export function WorkBadge({ work }: { work: Work }) {
   const state = work.activity ?? work.readiness;
   const label = work.activity ? ACTIVITY_LABEL[work.activity] : READINESS_LABEL[work.readiness];
   return (
-    <span className={`work-badge work-${state}`} title={work.reasons.map((r) => r.message).join("\n")}>
+    <span className={`work-badge work-${state}`} title={work.reasons.map((r) => reasonText(r, work.hold_reason)).join("\n")}>
       <span className="dot" />
       {label}
     </span>
