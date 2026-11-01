@@ -13,6 +13,18 @@ export interface Principal extends PrincipalRef {
   email?: string | null;
 }
 
+export interface PrincipalWorkItem {
+  key: string;
+  title: string;
+  project: Pick<Project, "id" | "key" | "name">;
+  activity: "claimed" | "working" | "paused";
+  acquired_at: string;
+}
+
+export interface PrincipalWork extends Principal {
+  work: PrincipalWorkItem[];
+}
+
 export interface Me {
   id: string;
   kind: string;

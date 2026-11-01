@@ -120,7 +120,7 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 | 自分 | `GET・PATCH /me`、`PUT /me/password`、`GET /me/inbox`（自分宛の質問・レビュー依頼） |
 | 組織 | `PATCH /organization`（組織管理者による自組織名の変更） |
 | 委譲 | `GET・POST /me/delegations`（認証に使ったトークンから発行した委譲トークン） |
-| 主体 | `GET・POST /principals`（POST はエージェントの登録）、`GET・PATCH・DELETE /principals/{id}`、`PUT /principals/{id}/password` |
+| 主体 | `GET・POST /principals`（POST はエージェントの登録）、`GET /principals/work`（主体ごとの報告された占有状況。閲覧できないタスクは内容・件数とも返さない）、`GET・PATCH・DELETE /principals/{id}`、`PUT /principals/{id}/password` |
 | 権限 | `GET・POST /principals/{id}/grants`、`DELETE /grants/{id}` |
 | トークン | `GET・POST /principals/{id}/tokens`、`DELETE /tokens/{id}` |
 | サインアップ URL | `GET・POST /signup-links`、`DELETE /signup-links/{id}` |

@@ -121,6 +121,7 @@ fn api_routes() -> Router<AppState> {
         .route("/me/inbox", get(collab::inbox))
         .route("/me/delegations", get(delegation::list).post(delegation::create))
         .route("/principals", get(admin::list_principals).post(admin::create_principal))
+        .route("/principals/work", get(admin::list_principal_work))
         .route(
             "/principals/{id}",
             get(admin::get_principal)

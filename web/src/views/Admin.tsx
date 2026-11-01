@@ -1,8 +1,9 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { Session } from "../App";
-import type { ApiToken, Permission, Principal, SignupLink } from "../types";
-import { Avatar, ErrorNote, Modal, formatTime, shortTokenId } from "../ui";
+import type { ApiToken, Permission, Principal, PrincipalWork, SignupLink } from "../types";
+import { ACTIVITY_LABEL, Avatar, ErrorNote, Modal, TaskLink, formatTime, shortTokenId } from "../ui";
+import { useLiveChanges } from "../live";
 
 const PERMISSIONS: Permission[] = ["view", "create", "edit", "claim", "assign", "review", "approve", "admin"];
 
@@ -288,7 +289,7 @@ function OrganizationName({ session }: { session: Session }) {
 }
 
 export function Admin({ session }: { session: Session }) {
-  const [principals, setPrincipals] = useState<Principal[]>([]);
+  const [principals, setPrincipals] = useState<PrincipalWork[]>([]);
   const [links, setLinks] = useState<SignupLink[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [agentName, setAgentName] = useState("");
@@ -303,7 +304,7 @@ export function Admin({ session }: { session: Session }) {
   const reload = useCallback(async () => {
     try {
       const [people, signup] = await Promise.all([
-        api.get<{ principals: Principal[] }>("/principals"),
+        api.get<{ principals: PrincipalWork[] }>("/principals/work"),
         api.get<{ signup_links: SignupLink[] }>("/signup-links"),
       ]);
       setPrincipals(people.principals);
@@ -316,6 +317,9 @@ export function Admin({ session }: { session: Session }) {
   useEffect(() => {
     void reload().catch(() => undefined);
   }, [reload]);
+  useLiveChanges(() => {
+    void reload().catch(() => undefined);
+  });
 
   const run = async (action: () => Promise<unknown>) => {
     try {
@@ -406,13 +410,14 @@ export function Admin({ session }: { session: Session }) {
       </table>
 
       <h2>主体</h2>
+      <p className="muted">作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。</p>
       <form className="inline-form" onSubmit={createAgent}>
         <input placeholder="エージェント名" value={agentName} onChange={(e) => setAgentName(e.target.value)} required />
         <button>エージェントを登録</button>
       </form>
       <table className="settings-table">
         <thead>
-          <tr><th>名前</th><th>種別</th><th>メール</th><th>状態</th><th /></tr>
+          <tr><th>名前</th><th>種別</th><th>メール</th><th>状態</th><th>作業</th><th /></tr>
         </thead>
         <tbody>
           {principals.map((principal) => (
@@ -421,6 +426,19 @@ export function Admin({ session }: { session: Session }) {
               <td>{principal.kind === "agent" ? "エージェント" : "人間"}</td>
               <td>{principal.email ?? "—"}</td>
               <td>{{ active: "有効", disabled: "無効", deleted: "削除済み" }[principal.status]}</td>
+              <td>
+                {principal.work.length === 0 ? "作業なし" : (
+                  <ul className="principal-work" aria-label={`${principal.display_name} の報告された作業状況`}>
+                    {principal.work.map((item) => (
+                      <li key={item.key}>
+                        <TaskLink task={item} />
+                        <span className={`work-badge work-${item.activity}`}><span className="dot" />{ACTIVITY_LABEL[item.activity]}</span>
+                        <span className="muted">{item.project.name} / {formatTime(item.acquired_at)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </td>
               <td>
                 {principal.status !== "deleted" && (
                   <>

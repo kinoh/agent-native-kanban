@@ -6,6 +6,7 @@ use std::collections::HashSet;
 
 use axum::http::StatusCode;
 use common::*;
+use agent_native_kanban::db::after_seconds;
 use serde_json::json;
 
 #[tokio::test]
@@ -271,6 +272,96 @@ async fn disabled_holder_keeps_the_work_until_an_admin_revokes_it() {
         .clone();
     assert_eq!(revocation["data"]["reason"], "stuck");
     assert_eq!(revocation["actor"]["id"], admin.id.as_str());
+}
+
+#[tokio::test]
+async fn principal_work_lists_visible_claims_without_leaking_hidden_or_scoped_tasks() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let visible_project = app.project(&admin, "OPEN").await;
+    let hidden_project = app.project(&admin, "SECRET").await;
+    let holder = app.agent(
+        &admin,
+        "Holder",
+        json!([
+            { "project_id": visible_project.id, "permission": "claim" },
+            { "project_id": hidden_project.id, "permission": "claim" },
+        ]),
+    ).await;
+    let viewer = app.agent(&admin, "Viewer", worker_grants(&visible_project)).await;
+    let visible = app.task(&admin, &visible_project, &visible_project.implement, "Visible").await;
+    let hidden = app.task(&admin, &hidden_project, &hidden_project.implement, "Hidden").await;
+    let visible_claim = app.claim(&holder, &visible).await;
+    let hidden_claim = app.claim(&holder, &hidden).await;
+    assert_eq!(
+        app.post(
+            &holder,
+            &format!("/tasks/{}/work/start", visible["key"].as_str().unwrap()),
+            json!({ "claim_id": visible_claim }),
+        ).await.status,
+        StatusCode::OK,
+    );
+    assert_eq!(
+        app.post(
+            &holder,
+            &format!("/tasks/{}/work/start", hidden["key"].as_str().unwrap()),
+            json!({ "claim_id": hidden_claim }),
+        ).await.status,
+        StatusCode::OK,
+    );
+    assert_eq!(
+        app.post(
+            &holder,
+            &format!("/tasks/{}/work/pause", hidden["key"].as_str().unwrap()),
+            json!({ "claim_id": hidden_claim }),
+        ).await.status,
+        StatusCode::OK,
+    );
+
+    assert_eq!(app.get(&ANON, "/principals/work").await.status, StatusCode::UNAUTHORIZED);
+    let visible_only = app.get(&viewer, "/principals/work").await;
+    assert_eq!(visible_only.status, StatusCode::OK);
+    let holder_work = visible_only.body["principals"].as_array().unwrap().iter()
+        .find(|principal| principal["id"] == holder.id).unwrap();
+    assert_eq!(holder_work["work"].as_array().unwrap().len(), 1);
+    assert_eq!(holder_work["work"][0]["key"], visible["key"]);
+    assert_eq!(holder_work["work"][0]["activity"], "working");
+    assert!(!visible_only.body.to_string().contains("Hidden"));
+    assert!(!visible_only.body.to_string().contains(hidden["key"].as_str().unwrap()));
+
+    let delegated = app.post(&holder, "/me/delegations", json!({
+        "name": "one task",
+        "expires_at": after_seconds(3600),
+        "scopes": [{ "project_id": visible_project.id, "permission": "claim" }],
+        "tasks": [visible["key"]],
+    })).await;
+    assert_eq!(delegated.status, StatusCode::CREATED, "{:?}", delegated.body);
+    let scoped = Client {
+        id: holder.id.clone(),
+        auth: Auth::Bearer(delegated.body["token"].as_str().unwrap().to_string()),
+    };
+    let scoped_work = app.get(&scoped, "/principals/work").await;
+    assert_eq!(scoped_work.status, StatusCode::OK);
+    assert_eq!(
+        scoped_work.body["principals"].as_array().unwrap().iter()
+            .find(|principal| principal["id"] == holder.id).unwrap()["work"],
+        json!([{
+            "key": visible["key"],
+            "title": "Visible",
+            "project": { "id": visible_project.id, "key": "OPEN", "name": "Project OPEN" },
+            "activity": "working",
+            "acquired_at": scoped_work.body["principals"].as_array().unwrap().iter()
+                .find(|principal| principal["id"] == holder.id).unwrap()["work"][0]["acquired_at"],
+        }]),
+    );
+
+    assert_eq!(app.delete(&admin, &format!("/principals/{}", holder.id)).await.status, StatusCode::NO_CONTENT);
+    let after_deletion = app.get(&admin, "/principals/work").await;
+    let deleted_holder = after_deletion.body["principals"].as_array().unwrap().iter()
+        .find(|principal| principal["id"] == holder.id).unwrap();
+    assert_eq!(deleted_holder["status"], "deleted");
+    assert_eq!(deleted_holder["work"].as_array().unwrap().len(), 2);
+    assert_eq!(app.view(&admin, &visible).await["work"]["occupant"]["id"], holder.id);
 }
 
 #[tokio::test]

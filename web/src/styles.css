@@ -108,6 +108,8 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .task-table, .settings-table { width: 100%; border-collapse: collapse; }
 .task-table th, .settings-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .task-table td, .settings-table td { padding: 6px 8px; border-bottom: 1px solid #1e2025; }
+.principal-work { list-style: none; margin: 0; padding: 0; }
+.principal-work li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
 .task-table tbody tr { cursor: pointer; }
 .task-table tbody tr:hover, .task-table tbody tr.selected { background: var(--panel-2); }
 
