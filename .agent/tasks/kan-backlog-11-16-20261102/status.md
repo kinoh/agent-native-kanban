@@ -25,4 +25,4 @@ Workers run with KANBAN_TOKEN removed from their environment.
 Director working files: ~/.local/state/agent-native-kanban/backlog-11-16/.
 
 ## Remaining
-Delegate to each worker, review, return fixes, then ask the user about merging, the review stage and deployment.
+Workers are delegated. When a worker reports, start its independent reviewer as in reviewer.md, return blocking findings to the worker, re-review, then ask the user about merging, the review stage and deployment.
