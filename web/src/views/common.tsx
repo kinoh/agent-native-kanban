@@ -1,0 +1,218 @@
+import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { api } from "../api";
+import { useLiveChanges } from "../live";
+import { navigate } from "../router";
+import type { Principal, Project, Stage, Task } from "../types";
+import { ErrorNote, Modal, PRIORITY_LABEL } from "../ui";
+
+export function useProjectTasks(projectId: string, filters: string) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const reply = await api.get<{ tasks: Task[] }>(`/tasks?project=${projectId}&limit=500${filters}`);
+      setTasks(reply.tasks);
+      setError(null);
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  }, [projectId, filters]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+  useLiveChanges(() => void reload());
+  return { tasks, error, setError, reload };
+}
+
+export function usePrincipals(): Principal[] {
+  const [principals, setPrincipals] = useState<Principal[]>([]);
+  useEffect(() => {
+    void api.get<{ principals: Principal[] }>("/principals").then((reply) => setPrincipals(reply.principals));
+  }, []);
+  return principals.filter((principal) => principal.status !== "deleted");
+}
+
+export function ViewTabs({ project, current }: { project: Project; current: "board" | "list" | "settings" }) {
+  const tabs = [
+    ["board", "ボード"],
+    ["list", "リスト"],
+    ["settings", "設定"],
+  ] as const;
+  return (
+    <nav className="tabs">
+      {tabs.map(([id, label]) => (
+        <a
+          key={id}
+          className={id === current ? "active" : ""}
+          href={`/projects/${project.key}/${id}`}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(`/projects/${project.key}/${id}`);
+          }}
+        >
+          {label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+export interface Filters {
+  query: string;
+  claimableOnly: boolean;
+  priority: string;
+  sort: string;
+}
+
+export const EMPTY_FILTERS: Filters = { query: "", claimableOnly: false, priority: "", sort: "priority" };
+
+export function filterQuery(filters: Filters): string {
+  const params = new URLSearchParams();
+  if (filters.query) params.set("q", filters.query);
+  if (filters.claimableOnly) params.set("can_claim", "true");
+  if (filters.priority) params.set("priority", filters.priority);
+  params.set("sort", filters.sort);
+  return `&${params}`;
+}
+
+export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (filters: Filters) => void }) {
+  return (
+    <div className="filter-bar">
+      <input
+        className="filter-search"
+        placeholder="タスクを絞り込む"
+        value={filters.query}
+        onChange={(e) => onChange({ ...filters, query: e.target.value })}
+      />
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={filters.claimableOnly}
+          onChange={(e) => onChange({ ...filters, claimableOnly: e.target.checked })}
+        />
+        自分が取得できる仕事だけ
+      </label>
+      <select value={filters.priority} onChange={(e) => onChange({ ...filters, priority: e.target.value })} aria-label="優先度">
+        <option value="">優先度: すべて</option>
+        {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <select value={filters.sort} onChange={(e) => onChange({ ...filters, sort: e.target.value })} aria-label="並べ替え">
+        <option value="priority">優先度順</option>
+        <option value="updated">更新順</option>
+        <option value="created">作成順</option>
+        <option value="due">期限順</option>
+      </select>
+    </div>
+  );
+}
+
+export function CreateTask({
+  project,
+  stageId,
+  onClose,
+  onCreated,
+}: {
+  project: Project;
+  stageId?: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [stage, setStage] = useState(stageId ?? project.stages[0]?.id ?? "");
+  const [priority, setPriority] = useState("none");
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    try {
+      await api.post("/tasks", { project_id: project.id, title, description, stage_id: stage, priority });
+      onCreated();
+      onClose();
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  };
+
+  return (
+    <Modal title="タスクを作成" onClose={onClose}>
+      <form onSubmit={submit}>
+        <label>
+          タイトル
+          <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </label>
+        <label>
+          説明
+          <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </label>
+        <div className="row">
+          <label>
+            業務段階
+            <select value={stage} onChange={(e) => setStage(e.target.value)}>
+              {project.stages.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            優先度
+            <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              {Object.entries(PRIORITY_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <ErrorNote message={error} />
+        <button className="primary">作成</button>
+      </form>
+    </Modal>
+  );
+}
+
+export function MoveStage({
+  task,
+  stages,
+  onClose,
+  onMoved,
+}: {
+  task: Task;
+  stages: Stage[];
+  onClose: () => void;
+  onMoved: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const move = async (stage: Stage) => {
+    try {
+      await api.post(`/tasks/${task.key}/stage`, { to_stage_id: stage.id, version: task.version });
+      onMoved();
+      onClose();
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  };
+  return (
+    <Modal title={`${task.key} の業務段階を変更`} onClose={onClose}>
+      <div className="choice-list">
+        {stages
+          .filter((stage) => stage.id !== task.stage.id)
+          .map((stage) => (
+            <button key={stage.id} onClick={() => void move(stage)}>
+              {stage.name}
+            </button>
+          ))}
+      </div>
+      <ErrorNote message={error} />
+    </Modal>
+  );
+}
