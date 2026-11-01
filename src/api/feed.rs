@@ -68,6 +68,33 @@ fn visible(actor: &Actor, event: &EventView) -> bool {
     }
 }
 
+/// 旧版の横断関係の履歴も、参照先の権限を確認してから配信する。
+/// 判定不能な参照を含むイベントは公開しない。保存された履歴自体は変更しない。
+fn references_visible(conn: &Connection, actor: &Actor, event: &EventView) -> ApiResult<bool> {
+    let references: Vec<&Value> = match event.kind.as_str() {
+        "dependency.added" | "dependency.removed" => vec![&event.data["depends_on"]],
+        "link.added" | "link.removed" => vec![&event.data["related"]],
+        "task.updated" => match event.data["changes"].get("parent_id") {
+            Some(change) => vec![&change["from"], &change["to"]]
+                .into_iter().filter(|value| !value.is_null()).collect(),
+            None => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+    for reference in references {
+        let Some(reference) = reference.as_str() else {
+            tracing::warn!(seq = event.seq, "withheld event with an invalid task reference");
+            return Ok(false);
+        };
+        match resolve_task(conn, actor, reference) {
+            Ok(_) => {}
+            Err(error) if error.status == axum::http::StatusCode::NOT_FOUND => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(true)
+}
+
 /// `after` より後のイベントを見える分だけ返す。2つ目の値は次回の開始位置で、
 /// 見えないイベントだけが続く区間も読み飛ばして進む。
 fn read_events(
@@ -92,7 +119,7 @@ fn read_events(
             }
             cursor = event.seq;
             let in_scope = project.is_none_or(|p| event.project_id.as_deref() == Some(p));
-            if in_scope && visible(actor, &event) {
+            if in_scope && visible(actor, &event) && references_visible(conn, actor, &event)? {
                 events.push(event);
             }
         }
@@ -210,11 +237,17 @@ pub async fn stream(
     Ok(Sse::new(events).keep_alive(KeepAlive::default()))
 }
 
-pub fn task_history(conn: &Connection, task_id: &str) -> ApiResult<Vec<EventView>> {
+pub fn task_history(conn: &Connection, actor: &Actor, task_id: &str) -> ApiResult<Vec<EventView>> {
     let sql = format!("{EVENT_SELECT} WHERE e.task_id = ?1 ORDER BY e.seq");
     let mut statement = conn.prepare_cached(&sql)?;
     let events = statement.query_map([task_id], event_view)?.collect::<Result<Vec<_>, _>>()?;
-    Ok(events)
+    let mut visible_events = Vec::new();
+    for event in events {
+        if visible(actor, &event) && references_visible(conn, actor, &event)? {
+            visible_events.push(event);
+        }
+    }
+    Ok(visible_events)
 }
 
 pub async fn history(
@@ -226,7 +259,7 @@ pub async fn history(
         .db
         .read(move |conn| {
             let task = resolve_task(conn, &actor, &reference)?;
-            Ok(Json(json!({ "history": task_history(conn, &task.id)? })))
+            Ok(Json(json!({ "history": task_history(conn, &actor, &task.id)? })))
         })
         .await
 }

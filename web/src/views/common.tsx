@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useLiveChanges } from "../live";
 import { navigate } from "../router";
@@ -8,19 +8,38 @@ import { ErrorNote, Modal, PRIORITY_LABEL } from "../ui";
 export function useProjectTasks(projectId: string, filters: string) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   const reload = useCallback(async () => {
+    const current = ++requestId.current;
     try {
-      const reply = await api.get<{ tasks: Task[] }>(`/tasks?project=${projectId}&limit=500${filters}`);
-      setTasks(reply.tasks);
+      const all: Task[] = [];
+      let cursor = 0;
+      while (true) {
+        const reply = await api.get<{ tasks: Task[]; next_cursor: number | null }>(
+          `/tasks?project=${projectId}&limit=500&cursor=${cursor}${filters}`,
+        );
+        if (current !== requestId.current) return;
+        all.push(...reply.tasks);
+        if (reply.next_cursor === null) break;
+        if (!Number.isInteger(reply.next_cursor) || reply.next_cursor <= cursor) {
+          throw new Error("タスク一覧の続きを取得できませんでした");
+        }
+        cursor = reply.next_cursor;
+      }
+      setTasks(all);
       setError(null);
     } catch (failure) {
+      if (current !== requestId.current) return;
+      console.error("Failed to load project tasks", failure);
       setError((failure as Error).message);
     }
   }, [projectId, filters]);
 
   useEffect(() => {
+    setTasks([]);
     void reload();
+    return () => { requestId.current += 1; };
   }, [reload]);
   useLiveChanges(() => void reload());
   return { tasks, error, setError, reload };
@@ -63,16 +82,18 @@ export interface Filters {
   query: string;
   claimableOnly: boolean;
   priority: string;
+  dependsOn: string;
   sort: string;
 }
 
-export const EMPTY_FILTERS: Filters = { query: "", claimableOnly: false, priority: "", sort: "priority" };
+export const EMPTY_FILTERS: Filters = { query: "", claimableOnly: false, priority: "", dependsOn: "", sort: "priority" };
 
 export function filterQuery(filters: Filters): string {
   const params = new URLSearchParams();
   if (filters.query) params.set("q", filters.query);
   if (filters.claimableOnly) params.set("can_claim", "true");
   if (filters.priority) params.set("priority", filters.priority);
+  if (filters.dependsOn.trim()) params.set("depends_on", filters.dependsOn.trim());
   params.set("sort", filters.sort);
   return `&${params}`;
 }
@@ -94,6 +115,12 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
         />
         自分が取得できる仕事だけ
       </label>
+      <input
+        aria-label="依存先"
+        placeholder="依存先のタスクキー"
+        value={filters.dependsOn}
+        onChange={(e) => onChange({ ...filters, dependsOn: e.target.value })}
+      />
       <select value={filters.priority} onChange={(e) => onChange({ ...filters, priority: e.target.value })} aria-label="優先度">
         <option value="">優先度: すべて</option>
         {Object.entries(PRIORITY_LABEL).map(([value, label]) => (

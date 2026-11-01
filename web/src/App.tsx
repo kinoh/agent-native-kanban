@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiFailure, api } from "./api";
 import { navigate, usePath } from "./router";
 import type { InboxItem, Me, Project } from "./types";
@@ -75,13 +75,18 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const projectsRequest = useRef(0);
 
   const reloadProjects = useCallback(async () => {
+    const current = ++projectsRequest.current;
     try {
       const reply = await api.get<{ projects: Project[] }>("/projects");
+      if (current !== projectsRequest.current) return;
       setProjects(reply.projects);
       setLoadError(null);
     } catch (error) {
+      if (current !== projectsRequest.current) return;
+      console.error("Failed to load projects", error);
       setLoadError((error as Error).message);
     }
   }, []);
@@ -94,7 +99,10 @@ function Shell({ me, onLogout }: { me: Me; onLogout: () => void }) {
     void reloadProjects();
     void reloadInbox().catch((error) => setLoadError(error.message));
   }, [reloadProjects, reloadInbox]);
-  useLiveChanges(() => void reloadInbox().catch((error) => setLoadError(error.message)));
+  useLiveChanges(() => {
+    void reloadProjects();
+    void reloadInbox().catch((error) => setLoadError(error.message));
+  });
 
   const projectMatch = path.match(/^\/projects\/([^/]+)/);
   const currentProject = projects.find((project) => project.key === projectMatch?.[1]);

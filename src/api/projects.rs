@@ -438,6 +438,7 @@ pub async fn put_rules(
         .write(move |conn| {
             require_visible(conn, &actor, &id)?;
             actor.require(&id, Permission::Admin)?;
+            let before = project_json(conn, &id)?["transition_rules"].clone();
             conn.execute("DELETE FROM transition_rules WHERE project_id = ?1", [&id])?;
             for rule in &request.rules {
                 for stage_id in [&rule.from_stage_id, &rule.to_stage_id] {
@@ -481,10 +482,13 @@ pub async fn put_rules(
                     return Err(ApiError::invalid("each transition may have only one rule"));
                 }
             }
+            let project = project_json(conn, &id)?;
             emit(conn, project_event(&actor.org_id, &id, &actor.id, "workflow.rules_replaced", json!({
                 "rule_count": request.rules.len(),
+                "from": before,
+                "to": project["transition_rules"],
             })))?;
-            Ok(Json(project_json(conn, &id)?))
+            Ok(Json(project))
         })
         .await
 }

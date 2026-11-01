@@ -193,6 +193,18 @@ pub fn load_task(conn: &Connection, task_id: &str) -> ApiResult<TaskRow> {
         .ok_or_else(|| ApiError::not_found("task"))
 }
 
+/// タスク間の関係はプロジェクト内に閉じる。
+pub fn require_same_project(project_id: &str, other: &TaskRow) -> ApiResult<()> {
+    if project_id == other.project_id {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+        "relation_project_mismatch",
+        "related tasks must belong to the same project",
+    ))
+}
+
 /// `PROJ-12` 形式のキーまたは ID からタスクを解決する。閲覧できないタスクは存在しない扱い。
 pub fn resolve_task(conn: &Connection, actor: &Actor, reference: &str) -> ApiResult<TaskRow> {
     let by_key = reference

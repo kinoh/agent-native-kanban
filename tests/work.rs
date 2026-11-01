@@ -196,7 +196,7 @@ async fn dependencies_block_until_the_blocker_reaches_a_final_stage() {
 }
 
 #[tokio::test]
-async fn blockers_in_hidden_projects_block_without_leaking() {
+async fn dependencies_cannot_cross_project_boundaries() {
     let app = App::new();
     let admin = app.organization("Acme", "admin@acme.test").await;
     let visible = app.project(&admin, "OPEN").await;
@@ -204,14 +204,16 @@ async fn blockers_in_hidden_projects_block_without_leaking() {
     let agent = app.agent(&admin, "A", worker_grants(&visible)).await;
     let secret = app.task(&admin, &hidden, &hidden.implement, "Secret").await;
     let task = app.task(&admin, &visible, &visible.implement, "Public").await;
-    app.post(&admin, &format!("/tasks/{}/dependencies", task["key"].as_str().unwrap()), json!({
+    let rejected = app.post(&admin, &format!("/tasks/{}/dependencies", task["key"].as_str().unwrap()), json!({
         "depends_on": secret["key"], "reason": "secret reason",
     }))
     .await;
+    assert_eq!(rejected.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(rejected.code(), "relation_project_mismatch");
 
     let seen = app.view(&agent, &task).await;
-    assert_eq!(seen["work"]["claimable"], false);
-    assert_eq!(seen["work"]["hidden_blockers"], 1);
+    assert_eq!(seen["work"]["claimable"], true);
+    assert_eq!(seen["work"]["hidden_blockers"], 0);
     assert_eq!(seen["work"]["blockers"].as_array().unwrap().len(), 0);
     assert!(!seen.to_string().contains("Secret"));
 }

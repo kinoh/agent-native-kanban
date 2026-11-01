@@ -17,7 +17,7 @@ use crate::events::{EventInput, emit};
 use crate::model::{Permission, Readiness};
 use crate::tasks::{
     TaskRow, TaskView, load_task, load_tasks, parse_priority, priority_name, refresh_claimable,
-    require_assignable, resolve_task, to_view, with_dependents,
+    require_assignable, require_same_project, resolve_task, to_view, with_dependents,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 100;
@@ -57,6 +57,8 @@ pub struct ListQuery {
     activity: Option<String>,
     readiness: Option<String>,
     parent: Option<String>,
+    /// このタスクに直接依存する仕事。ID またはキー。
+    depends_on: Option<String>,
     due_before: Option<String>,
     q: Option<String>,
     sort: Option<String>,
@@ -142,11 +144,20 @@ pub async fn list(
         );
     }
     let occupant = query.occupant.map(|value| me_or_id(&actor, value));
-    let filter = filter.join(" AND ");
+    let mut filter = filter.join(" AND ");
 
     state
         .db
         .read(move |conn| {
+            if let Some(reference) = &query.depends_on {
+                let dependency = resolve_task(conn, &actor, reference)?;
+                args.push(SqlValue::Text(dependency.id));
+                filter.push_str(&format!(
+                    " AND EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks b ON b.id = d.depends_on_id
+                      WHERE d.task_id = t.id AND d.depends_on_id = ?{} AND b.project_id = t.project_id)",
+                    args.len()
+                ));
+            }
             let mut views = Vec::new();
             for task in load_tasks(conn, &filter, &args, &order)? {
                 if !actor.can_view(&task.project_id) {
@@ -246,7 +257,11 @@ pub async fn create(
             };
             let stage_id = stage_id.ok_or_else(|| ApiError::invalid("stage is not in this project"))?;
             let parent_id = match &request.parent {
-                Some(reference) => Some(resolve_task(conn, &actor, reference)?.id),
+                Some(reference) => {
+                    let parent = resolve_task(conn, &actor, reference)?;
+                    require_same_project(&request.project_id, &parent)?;
+                    Some(parent.id)
+                }
                 None => None,
             };
             let number: i64 = conn.query_row(
@@ -419,6 +434,7 @@ pub async fn update(
                 let parent_id = match value {
                     Some(reference) => {
                         let parent = resolve_task(conn, &actor, reference)?;
+                        require_same_project(&task.project_id, &parent)?;
                         ensure_no_parent_cycle(conn, &task.id, &parent.id)?;
                         Some(parent.id)
                     }
@@ -684,7 +700,7 @@ pub async fn context(
                 "comments": comments_json(conn, &task.id)?,
                 "artifacts": artifacts_json(conn, &task.id)?,
                 "claims": claims_json(conn, &task.id)?,
-                "history": task_history(conn, &task.id)?,
+                "history": task_history(conn, &actor, &task.id)?,
             })))
         })
         .await

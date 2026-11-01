@@ -20,6 +20,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   not_claimable: "現在この仕事は取得できません",
   dependency_cycle: "依存関係が循環します",
   dependency_exists: "この依存関係はすでにあります",
+  relation_project_mismatch: "同じプロジェクトのタスクを指定してください",
   stage_in_use: "この段階にタスクが残っているため削除できません",
   last_admin: "組織には有効な人間の管理者が1人以上必要です",
   email_taken: "このメールアドレスは登録済みです",

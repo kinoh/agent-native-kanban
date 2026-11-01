@@ -17,7 +17,7 @@ use crate::db::{new_id, now};
 use crate::error::{ApiError, ApiResult};
 use crate::events::emit;
 use crate::model::Permission;
-use crate::tasks::{TaskRow, refresh_claimable, resolve_task};
+use crate::tasks::{TaskRow, refresh_claimable, require_same_project, resolve_task};
 
 const MAX_BODY_CHARS: usize = 20_000;
 
@@ -398,6 +398,7 @@ pub async fn add_dependency(
             let task = resolve_task(conn, &actor, &reference)?;
             actor.require(&task.project_id, Permission::Edit)?;
             let other = resolve_task(conn, &actor, &request.depends_on)?;
+            require_same_project(&task.project_id, &other)?;
             if creates_cycle(conn, &task.id, &other.id)? {
                 return Err(ApiError::conflict("dependency_cycle", "this dependency would create a cycle"));
             }
@@ -470,6 +471,7 @@ pub async fn add_task_link(
             let task = resolve_task(conn, &actor, &reference)?;
             actor.require(&task.project_id, Permission::Edit)?;
             let other = resolve_task(conn, &actor, &request.related)?;
+            require_same_project(&task.project_id, &other)?;
             if task.id == other.id {
                 return Err(ApiError::invalid("a task cannot be linked to itself"));
             }
