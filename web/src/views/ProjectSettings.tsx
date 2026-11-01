@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Session } from "../App";
 import type { Project, Stage, TransitionRule } from "../types";
 import { ErrorNote } from "../ui";
-import { ViewTabs } from "./common";
+import { canAdminProject, ViewTabs } from "./common";
 
 const CLAIM_PERMISSIONS = ["claim", "review", "approve"];
 const RULE_PERMISSIONS = ["", "edit", "review", "approve", "admin"];
@@ -15,9 +15,11 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
   const [to, setTo] = useState("");
   const [permission, setPermission] = useState("");
   const [requireDone, setRequireDone] = useState(false);
-  const canAdmin = session.me.grants.some(
-    (grant) => grant.permission === "admin" && (grant.project_id === null || grant.project_id === project.id),
-  );
+  // null は未編集。保存済みの値を表示し、他の主体の変更も反映する。
+  const [overview, setOverview] = useState<string | null>(null);
+  const [savingOverview, setSavingOverview] = useState(false);
+  const [overviewSaved, setOverviewSaved] = useState(false);
+  const canAdmin = canAdminProject(session, project);
 
   const run = async (action: () => Promise<unknown>) => {
     try {
@@ -26,6 +28,23 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
       setError(null);
     } catch (failure) {
       setError((failure as Error).message);
+    }
+  };
+
+  const saveOverview = async (event: FormEvent) => {
+    event.preventDefault();
+    setSavingOverview(true);
+    setOverviewSaved(false);
+    try {
+      await api.patch(`/projects/${project.id}`, { description: overview ?? project.description });
+      await session.reloadProjects();
+      setOverview(null);
+      setOverviewSaved(true);
+      setError(null);
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setSavingOverview(false);
     }
   };
 
@@ -75,6 +94,29 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
       </header>
       <ErrorNote message={error} />
       {!canAdmin && <p className="muted">設定の変更にはこのプロジェクトの管理権限が必要です。</p>}
+      <h2>概要</h2>
+      {canAdmin ? (
+        <form className="overview-form" onSubmit={saveOverview}>
+          <textarea
+            rows={5}
+            aria-label="プロジェクトの概要"
+            placeholder="プロジェクトの目的、リポジトリ名やURLなど"
+            value={overview ?? project.description}
+            onChange={(e) => {
+              setOverview(e.target.value);
+              setOverviewSaved(false);
+            }}
+          />
+          <div>
+            <button type="submit" disabled={savingOverview || overview === null}>
+              {savingOverview ? "保存中…" : "概要を保存"}
+            </button>
+            {overviewSaved && <span className="muted"> 保存しました</span>}
+          </div>
+        </form>
+      ) : (
+        <p className="overview-text">{project.description || <span className="muted">概要は設定されていません。</span>}</p>
+      )}
       <h2>業務段階</h2>
       <table className="settings-table">
         <thead>

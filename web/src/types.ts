@@ -136,6 +136,7 @@ export interface HistoryEvent {
 }
 
 export interface TaskContext {
+  project: Pick<Project, "id" | "key" | "name" | "description">;
   task: Task;
   parent: Task | null;
   children: Task[];

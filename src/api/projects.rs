@@ -15,6 +15,8 @@ use crate::events::{EventInput, emit};
 use crate::model::Permission;
 use crate::tasks::{refresh_claimable, with_dependents};
 
+const MAX_DESCRIPTION_CHARS: usize = 2000;
+
 fn project_event<'a>(
     org_id: &'a str,
     project_id: &'a str,
@@ -33,6 +35,17 @@ fn project_event<'a>(
         kind,
         data,
     }
+}
+
+/// プロジェクトの概要は空を許す。既存のプロジェクトに入力を強制しないため。
+fn project_description(value: &str) -> ApiResult<String> {
+    let trimmed = value.trim();
+    if trimmed.chars().count() > MAX_DESCRIPTION_CHARS {
+        return Err(ApiError::invalid(format!(
+            "description must be at most {MAX_DESCRIPTION_CHARS} characters"
+        )));
+    }
+    Ok(trimmed.to_string())
 }
 
 fn require_visible(conn: &Connection, actor: &Actor, project_id: &str) -> ApiResult<()> {
@@ -189,6 +202,7 @@ pub async fn create(
     if request.stages.is_empty() {
         return Err(ApiError::invalid("a project needs at least one stage"));
     }
+    let description = project_description(&request.description)?;
     state
         .db
         .write(move |conn| {
@@ -204,7 +218,7 @@ pub async fn create(
             conn.execute(
                 "INSERT INTO projects (id, org_id, key, name, description, created_by, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![id, actor.org_id, key, name, request.description, actor.id, now()],
+                params![id, actor.org_id, key, name, description, actor.id, now()],
             )?;
             for (position, stage) in request.stages.iter().enumerate() {
                 insert_stage(conn, &id, position as i64, stage)?;
@@ -245,6 +259,7 @@ pub async fn update(
     Path(id): Path<String>,
     ApiJson(request): ApiJson<UpdateProjectRequest>,
 ) -> ApiResult<Json<Value>> {
+    let description = request.description.as_deref().map(project_description).transpose()?;
     state
         .db
         .write(move |conn| {
@@ -254,7 +269,7 @@ pub async fn update(
                 let name = required_text("name", name, 100)?;
                 conn.execute("UPDATE projects SET name = ?1 WHERE id = ?2", params![name, id])?;
             }
-            if let Some(description) = &request.description {
+            if let Some(description) = &description {
                 conn.execute(
                     "UPDATE projects SET description = ?1 WHERE id = ?2",
                     params![description, id],
@@ -262,8 +277,9 @@ pub async fn update(
             }
             emit(conn, project_event(&actor.org_id, &id, &actor.id, "project.updated", json!({
                 "name": request.name,
-                "description": request.description,
+                "description": description,
             })))?;
+            tracing::info!(project = %id, actor = %actor.id, description_changed = description.is_some(), "updated project");
             Ok(Json(project_json(conn, &id)?))
         })
         .await

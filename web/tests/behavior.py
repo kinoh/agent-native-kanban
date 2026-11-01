@@ -31,7 +31,7 @@ project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','s
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
     return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','work':work}
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'principal_work_changed':False}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'principal_work_changed':False}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 def principal_work():
@@ -96,6 +96,16 @@ def route(r):
             target['display_name']=body['display_name'].strip()
             if principal_id=='human-1': state['display_name']=target['display_name']
         r.fulfill(status=200,content_type='application/json',body=json.dumps(human if principal_id=='human-1' else agent))
+        return
+    if r.request.method=='PATCH' and path=='/projects/project-1':
+        body=r.request.post_data_json
+        assert set(body)=={'description'}
+        if state['reject_project_patch']:
+            state['reject_project_patch']=False
+            r.fulfill(status=422,content_type='application/json',body=json.dumps({'error':{'code':'invalid_request','message':'description is too long'}}))
+            return
+        project['description']=body['description'].strip()
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(project))
         return
     if r.request.method=='DELETE' and path.startswith('/tokens/'):
         match=next(t for t in tokens if t['id']==path.rsplit('/',1)[1])
@@ -390,7 +400,54 @@ try:
         page.screenshot(path=str(STATE/'resources.png'))
         results['resources']={'created':True,'acquired_and_released':True,'external_hold_reloaded':True,'revoked':True,'edited':True,'deleted':page.locator('.resource-card').count()==0}
         assert results['resources']['deleted']
+        state['mode']='stage'
+        page.goto(base+'/projects/DEV/board')
+        page.wait_for_selector('[data-task="DEV-1"]')
+        page.get_by_role('link',name='プロジェクトの概要を設定',exact=True).click()
+        overview_box=page.get_by_role('textbox',name='プロジェクトの概要',exact=True)
+        overview_box.wait_for()
+        state['reject_project_patch']=True
+        overview_box.fill('rejected text')
+        page.get_by_role('button',name='概要を保存',exact=True).click()
+        page.get_by_text('description is too long',exact=True).wait_for()
+        assert project['description']=='' and overview_box.input_value()=='rejected text'
+        assert page.get_by_text('保存しました').count()==0
+        overview_box.fill('  目的: 監査\nrepo: org/audit\n3行目の詳細  ')
+        page.get_by_role('button',name='概要を保存',exact=True).click()
+        page.get_by_text('保存しました').wait_for()
+        assert project['description']=='目的: 監査\nrepo: org/audit\n3行目の詳細'
+        assert overview_box.input_value()==project['description']
+        page.reload()
+        overview_box.wait_for()
+        assert overview_box.input_value()==project['description']
+        for url in ('/projects/DEV/board','/projects/DEV/list','/tasks/DEV-1'):
+            page.goto(base+url)
+            shown=page.get_by_role('region',name='プロジェクトの概要')
+            shown.wait_for()
+            assert shown.locator('p').evaluate('p=>getComputedStyle(p).whiteSpace')=='pre-wrap'
+            assert shown.locator('p').inner_text().split('\n')==project['description'].split('\n')
+            toggle=shown.get_by_role('button',name='すべて表示',exact=True)
+            collapsed=shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')
+            toggle.click()
+            expanded=shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')
+            assert expanded>collapsed, (url,collapsed,expanded)
+            shown.get_by_role('button',name='折りたたむ',exact=True).click()
+            assert shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')==collapsed
+        results['project_overview_saved_and_shown']=True
         state['is_org_admin']=False
+        page.goto(base+'/projects/DEV/settings')
+        page.get_by_text('repo: org/audit').wait_for()
+        assert page.get_by_role('textbox',name='プロジェクトの概要',exact=True).count()==0
+        assert page.get_by_role('button',name='概要を保存',exact=True).count()==0
+        project['description']=''
+        page.goto(base+'/projects/DEV/board')
+        page.wait_for_selector('[data-task="DEV-1"]')
+        assert page.get_by_role('region',name='プロジェクトの概要').count()==0
+        assert page.get_by_role('link',name='プロジェクトの概要を設定',exact=True).count()==0
+        page.goto(base+'/tasks/DEV-1')
+        page.wait_for_selector('.breadcrumbs')
+        assert page.get_by_role('region',name='プロジェクトの概要').count()==0
+        results['project_overview_read_only_and_empty']=True
         page.goto(base+'/projects/DEV/board')
         page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).wait_for()
         assert page.get_by_role('link',name='組織の管理',exact=True).count()==0

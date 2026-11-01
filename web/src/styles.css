@@ -121,6 +121,13 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .account-settings { max-width: 560px; }
 .account-settings section { margin: 24px 0; }
 .settings-form { max-width: 360px; }
+.project-overview { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; color: var(--muted); }
+.project-overview p, .overview-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-overview p.collapsed { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.project-overview button { flex: none; }
+.project-overview-empty { margin: 0 0 10px; }
+.overview-form { display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
+.overview-form textarea { width: 100%; resize: vertical; }
 .success-note { color: var(--green); margin-top: 6px; }
 .tabs { display: flex; gap: 2px; }
 .tabs a { padding: 2px 9px; border-radius: 5px; color: var(--muted); }

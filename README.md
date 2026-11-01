@@ -124,10 +124,10 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 | 権限 | `GET・POST /principals/{id}/grants`、`DELETE /grants/{id}` |
 | トークン | `GET・POST /principals/{id}/tokens`、`DELETE /tokens/{id}` |
 | サインアップ URL | `GET・POST /signup-links`、`DELETE /signup-links/{id}` |
-| プロジェクト | `GET・POST /projects`、`GET・PATCH /projects/{id}` |
+| プロジェクト | `GET・POST /projects`、`GET・PATCH /projects/{id}`（`description` は目的やリポジトリを書く概要で、2000文字以内） |
 | ワークフロー | `POST /projects/{id}/stages`、`PATCH・DELETE /stages/{id}`、`PUT /projects/{id}/transition-rules` |
 | リソース | `GET・POST /resources`、`GET・PATCH・DELETE /resources/{id}`、`POST /resources/{id}/{acquire,release,revoke}` |
-| タスク | `GET・POST /tasks`、`GET・PATCH /tasks/{task}`、`GET /tasks/{task}/context`、`GET /tasks/{task}/history` |
+| タスク | `GET・POST /tasks`、`GET・PATCH /tasks/{task}`、`GET /tasks/{task}/context`（プロジェクトの概要を含む）、`GET /tasks/{task}/history` |
 | 業務段階 | `POST /tasks/{task}/stage` |
 | 作業（占有者） | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete}` |
 | 作業（編集権限） | `POST /tasks/{task}/work/{reopen,hold,unhold}` |

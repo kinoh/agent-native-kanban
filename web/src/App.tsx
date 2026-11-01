@@ -158,9 +158,9 @@ function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloa
   } else if (path === "/settings" && me.kind === "human") {
     content = <AccountSettings session={session} />;
   } else if (currentProject && path.endsWith("/board")) {
-    content = <BoardView project={currentProject} />;
+    content = <BoardView project={currentProject} session={session} />;
   } else if (currentProject && path.endsWith("/list")) {
-    content = <ListView project={currentProject} />;
+    content = <ListView project={currentProject} session={session} />;
   } else if (currentProject && path.endsWith("/settings")) {
     content = <ProjectSettings project={currentProject} session={session} />;
   } else {

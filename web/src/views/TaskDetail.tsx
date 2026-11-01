@@ -18,7 +18,7 @@ import {
   reasonText,
   shortTokenId,
 } from "../ui";
-import { MoveStage, usePrincipals } from "./common";
+import { MoveStage, ProjectOverview, usePrincipals } from "./common";
 
 const COMMENT_KINDS: Record<string, string> = {
   comment: "コメント",
@@ -488,6 +488,7 @@ export function TaskDetail({ reference, session }: { reference: string; session:
           </a>
           <span className="key">{task.key}</span>
         </div>
+        <ProjectOverview project={project} settingsLink={false} />
         <EditableTitle value={task.title} onSave={(title) => update({ title })} />
         <ErrorNote message={error} />
         <EditableText label="説明" large value={task.description} onSave={(description) => update({ description })} />

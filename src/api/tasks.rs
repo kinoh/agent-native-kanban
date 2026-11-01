@@ -700,7 +700,21 @@ pub async fn context(
                 .into_iter()
                 .map(|view| json!({ "reason": reasons.get(&view.id), "task": view }))
                 .collect();
+            // 作業者がプロジェクトの目的を別途探さずに済むよう、タスクの文脈に含める。
+            let project = conn.query_row(
+                "SELECT id, key, name, description FROM projects WHERE id = ?1",
+                [&task.project_id],
+                |row| {
+                    Ok(json!({
+                        "id": row.get::<_, String>(0)?,
+                        "key": row.get::<_, String>(1)?,
+                        "name": row.get::<_, String>(2)?,
+                        "description": row.get::<_, String>(3)?,
+                    }))
+                },
+            )?;
             Ok(Json(json!({
+                "project": project,
                 "task": to_view(&task, &actor)?,
                 "parent": parent,
                 "children": children,
