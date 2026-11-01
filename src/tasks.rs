@@ -267,7 +267,7 @@ impl TaskRow {
         format!("{}-{}", self.project_key, self.number)
     }
 
-    pub fn facts(&self) -> WorkFacts {
+    pub fn facts(&self, viewer_id: Option<&str>) -> WorkFacts {
         WorkFacts {
             work_state: self.work_state.clone(),
             hold_reason: self.hold_reason.clone(),
@@ -275,6 +275,7 @@ impl TaskRow {
             occupant: self.occupant.as_ref().map(|holder| OccupantFacts {
                 activity: self.activity.clone().unwrap_or_else(|| "unknown".to_string()),
                 status: holder.status.clone(),
+                is_self: viewer_id.is_some_and(|id| id == holder.id),
             }),
             open_blockers: self.blockers.len(),
             discarded: self.discard.is_some(),
@@ -282,7 +283,11 @@ impl TaskRow {
     }
 
     pub fn availability(&self) -> Availability {
-        availability(&self.facts())
+        availability(&self.facts(None))
+    }
+
+    pub fn availability_for(&self, viewer: &Actor) -> Availability {
+        availability(&self.facts(Some(&viewer.id)))
     }
 
     pub fn claim_permission(&self) -> ApiResult<Permission> {
@@ -368,7 +373,7 @@ pub fn parse_priority(value: &str) -> ApiResult<i64> {
 }
 
 pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
-    let result = task.availability();
+    let result = task.availability_for(actor);
     let permission = task.claim_permission()?;
     let has_claim_permission = actor.can(&task.project_id, permission);
     let (visible, hidden): (Vec<_>, Vec<_>) = task

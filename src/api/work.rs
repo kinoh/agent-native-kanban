@@ -27,8 +27,8 @@ fn finish(conn: &Connection, actor: &Actor, task_id: &str) -> ApiResult<Json<Tas
 }
 
 /// 取得できないときは理由を全て返す。
-fn ensure_claimable(task: &TaskRow) -> ApiResult<()> {
-    let result = task.availability();
+fn ensure_claimable(task: &TaskRow, actor: &Actor) -> ApiResult<()> {
+    let result = task.availability_for(actor);
     if result.claimable {
         return Ok(());
     }
@@ -107,7 +107,7 @@ pub async fn claim(
         .write(move |conn| {
             let task = resolve_task(conn, &actor, &reference)?;
             actor.require(&task.project_id, task.claim_permission()?)?;
-            ensure_claimable(&task)?;
+            ensure_claimable(&task, &actor)?;
             let claim_id = insert_claim(conn, &task, &actor.id)?;
             touch(conn, &task)?;
             emit(conn, task_event(&task, &actor, "work", "work.claimed", json!({

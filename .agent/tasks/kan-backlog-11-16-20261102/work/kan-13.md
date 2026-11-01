@@ -14,3 +14,8 @@ Dependencies: none on the other cards. Do not read or merge the other branches. 
 Questions: if the card is ambiguous or a card decision does not fit the code, stop that part and ask the director with the facts. Do not change a card decision yourself.
 
 ## Execution status
+
+- 2026-11-02 01:24 JST: 指示書、brief.md、cards.json、worker/task-state の規約を確認した。`src/model.rs`、`src/tasks.rs`、`src/api/work.rs` と `tests/work.rs` で、占有者本人と他者の occupied_* 理由文を出し分ける最小変更と回帰テストを実装する。ライブボード、KANBAN_TOKEN、18787 番ポート、main/kanban.sqlite は使用しない。
+- 2026-11-02 01:27 JST: `npm --prefix web ci` は watcher `/home/kino/.local/state/herdr-watch/20261102T012756-KAN-13-web-npm-ci-5bcd4a/` で成功した。Web テストは共有状態ディレクトリと固定ポートを使用するため、以降の各実行を `flock ~/.local/state/agent-native-kanban/web-tests.lock` で直列化する。全体 `cargo fmt --check` は既存ファイルにも大量のフォーマット差分を示すため失敗したが、KAN-13 外の変更を残さないよう、うちが生じさせた機械的整形は戻した。
+- 2026-11-02 01:30 JST: `git diff --check`、`cargo test`（88 件）、`npm --prefix web run build` が成功した。次は、共有ロックを用いて `behavior.py`、`theme.py`、`settings_integration.py` を順に実行する。各テストは Web のビルド済み成果物を使い、settings integration は一時 DB と OS 割当ポートの隔離サーバーを起動・終了することを確認済み。
+- 2026-11-02 01:30 JST: watcher `/home/kino/.local/state/herdr-watch/20261102T012946-KAN-13-serial-web-browser-tests-e87b11/` により、`flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/behavior.py`、同 theme.py、同 settings_integration.py が直列で成功した（43 秒）。behavior の `browser_errors` は空、theme は両テーマの可読性確認、settings integration は隔離サーバー上の account/admin 操作に成功。`git diff --check` も成功。次は差分をレビューしてコミットする。
