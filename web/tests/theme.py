@@ -71,7 +71,7 @@ def api_route(state):
         elif path == "/principals": body = {"principals": [human, agent, agent_child, missing_creator, independent]}
         elif path == "/principals/work":
             work = {"key": "THEME-1", "title": "配色を確認する", "project": {"id": project["id"], "key": project["key"], "name": project["name"]}, "activity": "working", "acquired_at": "2026-11-01T00:00:00.000Z"}
-            body = {"principals": [{**human, "work": []}, {**agent, "work": [work, {**work, "key": "THEME-2", "title": "作成関係を確認する"}]}, {**agent_child, "work": []}, {**missing_creator, "work": []}, {**independent, "work": []}]}
+            body = {"principals": [{**agent_child, "work": []}, {**independent, "work": []}, {**agent, "work": [work, {**work, "key": "THEME-2", "title": "作成関係を確認する"}]}, {**missing_creator, "work": []}, {**human, "work": []}]}
         elif path == "/resources":
             hold = {"id": "hold-1", "reason": "受け入れテストを実行する", "acquired_at": "2026-11-01T00:00:00.000Z", "holder": {"id": agent["id"], "kind": agent["kind"], "display_name": agent["display_name"], "status": agent["status"]}}
             body = {"resources": [{"id": "resource-1", "org_id": "org-1", "project_id": None, "name": "テスト環境", "description": "統合テスト用の環境", "capacity": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "holds": [hold]}]}
@@ -118,13 +118,15 @@ def verify_page(page, path, ready, theme, screenshot):
     if path == "/admin":
         rows = page.locator("table.settings-table").nth(1).locator("tbody tr")
         assert rows.count() == 5
-        assert rows.evaluate_all("rows => rows.map(row => row.dataset.principal)") == ["human-1", "agent-1", "agent-2", "agent-3", "human-2"]
+        assert rows.evaluate_all("rows => rows.map(row => row.dataset.principal)") == ["human-2", "agent-3", "human-1", "agent-1", "agent-2"]
+        indents = rows.evaluate_all("rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector('.principal-tree')).paddingInlineStart]))")
+        assert indents == {"human-2": "0px", "agent-3": "0px", "human-1": "0px", "agent-1": "18px", "agent-2": "36px"}
         assert page.get_by_label("作成元 Theme User").count() == 1
         assert page.get_by_label("作成元 Theme Agent").count() == 1
         assert "委譲" not in "".join(rows.all_inner_texts())
-        alignment = rows.nth(1).locator("td").evaluate_all("cells => cells.map(cell => { const box = cell.getBoundingClientRect(); return { center: box.y + box.height / 2, height: box.height }; })")
-        assert alignment[0]["height"] > 40
-        assert all(abs(cell["center"] - alignment[0]["center"]) < .5 for cell in alignment[1:])
+        alignment = rows.nth(3).evaluate("row => { const tree = row.querySelector('.principal-tree').getBoundingClientRect(); const cells = [...row.querySelectorAll('td')].slice(1).map(cell => cell.getBoundingClientRect()); return { treeCenter: tree.y + tree.height / 2, rowHeight: row.getBoundingClientRect().height, cellCenters: cells.map(cell => cell.y + cell.height / 2) }; }")
+        assert alignment["rowHeight"] > 40
+        assert all(abs(center - alignment["treeCenter"]) < .5 for center in alignment["cellCenters"])
     page.screenshot(path=str(SCREENSHOTS / screenshot), full_page=True)
 
 
