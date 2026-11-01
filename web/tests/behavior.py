@@ -31,7 +31,7 @@ project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','s
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
     return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','work':work}
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 FUTURE='2099-01-01T00:00:00.000Z'
@@ -51,6 +51,10 @@ def route(r):
     if r.request.method=='PATCH' and path=='/me':
         body=r.request.post_data_json
         assert set(body)=={'display_name'}
+        if state['reject_profile_patch']:
+            state['reject_profile_patch']=False
+            r.fulfill(status=422,content_type='application/json',body=json.dumps({'error':{'code':'invalid_request','message':'display name is invalid'}}))
+            return
         state['display_name']=body['display_name'].strip()
         human['display_name']=state['display_name']
         r.fulfill(status=200,content_type='application/json',body=json.dumps({}))
@@ -83,6 +87,10 @@ def route(r):
         r.fulfill(status=204)
         return
     if path=='/me':
+        if state['refresh_failures']:
+            state['refresh_failures']-=1
+            r.fulfill(status=500,content_type='application/json',body=json.dumps({'error':{'code':'internal_error','message':'internal server error'}}))
+            return
         body={'id':'human-1','kind':'human','display_name':state['display_name'],'email':'auditor@example.test','organization':{'id':'org-1','name':state['organization_name']},'is_org_admin':state['is_org_admin'],'grants':[{'project_id':None,'permission':'admin'}] if state['is_org_admin'] else []}
     elif path=='/projects':
         body={'projects':[{**project,'stages':[stage,new_stage] if state['moved'] else [stage]}]}
@@ -212,7 +220,35 @@ try:
         with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/me')):
             page.get_by_role('button',name='表示名を保存',exact=True).click()
         page.get_by_text('保存しました',exact=True).wait_for()
+        page.locator('.sidebar').get_by_role('link',name='Renamed Auditor',exact=True).wait_for()
         assert page.locator('.sidebar').get_by_role('link',name='Renamed Auditor',exact=True).count()==1
+        page.get_by_label('現在のパスワード').fill('retained current password')
+        page.get_by_label('新しいパスワード',exact=True).fill('retained new password')
+        page.get_by_label('新しいパスワードを確認').fill('retained new password')
+        state['reject_profile_patch']=True
+        page.get_by_label('表示名',exact=True).fill('Rejected Name')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/me')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.get_by_text('display name is invalid',exact=True).wait_for()
+        assert page.get_by_label('表示名',exact=True).input_value()=='Rejected Name'
+        assert page.get_by_label('現在のパスワード').input_value()=='retained current password'
+        state['refresh_failures']=1
+        page.get_by_label('表示名',exact=True).fill('Refresh Retry')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/me')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.get_by_text('internal server error',exact=True).wait_for()
+        assert page.get_by_role('heading',name='アカウント設定',exact=True).count()==1
+        assert page.locator('.center-card').count()==0
+        assert page.get_by_label('表示名',exact=True).input_value()=='Refresh Retry'
+        assert page.get_by_label('現在のパスワード').input_value()=='retained current password'
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/me')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.locator('.sidebar').get_by_role('link',name='Refresh Retry',exact=True).wait_for()
+        results['profile_refresh_recovery']={'patch_failure_preserves_inputs':True,'refresh_failure_preserves_inputs':True,'retry_refreshes_identity':True}
+        page.get_by_label('表示名',exact=True).fill('Renamed Auditor')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/me')):
+            page.get_by_role('button',name='表示名を保存',exact=True).click()
+        page.locator('.sidebar').get_by_role('link',name='Renamed Auditor',exact=True).wait_for()
         page.get_by_label('現在のパスワード').fill('wrong password')
         page.get_by_label('新しいパスワード',exact=True).fill('a valid password')
         page.get_by_label('新しいパスワードを確認').fill('different password')

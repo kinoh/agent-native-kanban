@@ -200,7 +200,7 @@ export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [fatal, setFatal] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
+  const reloadInitialSession = useCallback(async () => {
     try {
       setMe(await api.get<Me>("/me"));
     } catch (error) {
@@ -213,13 +213,24 @@ export function App() {
     }
   }, []);
 
+  const refreshMe = useCallback(async () => {
+    try {
+      setMe(await api.get<Me>("/me"));
+    } catch (error) {
+      if (error instanceof ApiFailure && error.status === 401) {
+        setMe(null);
+      }
+      throw error;
+    }
+  }, []);
+
   useEffect(() => {
-    void reload().catch(() => undefined);
-  }, [reload]);
+    void reloadInitialSession().catch(() => undefined);
+  }, [reloadInitialSession]);
 
   const signup = path.match(/^\/signup\/([^/]+)$/);
   if (signup) {
-    return <Signup token={signup[1]} onDone={() => void reload().then(() => navigate("/")).catch(() => undefined)} />;
+    return <Signup token={signup[1]} onDone={() => void reloadInitialSession().then(() => navigate("/")).catch(() => undefined)} />;
   }
   if (fatal) {
     return <div className="center-card error-note">{fatal}</div>;
@@ -228,12 +239,12 @@ export function App() {
     return null;
   }
   if (me === null) {
-    return <Login onDone={() => void reload().catch(() => undefined)} />;
+    return <Login onDone={() => void reloadInitialSession().catch(() => undefined)} />;
   }
   return (
     <Shell
       me={me}
-      reloadMe={reload}
+      reloadMe={refreshMe}
       onLogout={() =>
         void api.post("/auth/logout").then(() => {
           setMe(null);
