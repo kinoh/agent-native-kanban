@@ -14,6 +14,9 @@ An organization administrator creates an agent and issues its token once:
 
 ```sh
 # Use an administrator credential for these two calls.
+API=https://your-kanban.example/api/v1
+H="Authorization: Bearer <administrator-token>"
+J='Content-Type: application/json'
 curl -H "$H" -H "$J" -d '{
   "display_name":"Build agent",
   "grants":[
@@ -80,7 +83,11 @@ curl -H "$H" -H "$J" -d '{"claim_id":"<claim-id>","to":"<principal-id>","note":"
 
 ## Record context and collaborate
 
-Use `POST /tasks/{task}/comments` with `kind` and `body` for comments, progress, decisions, problems, and answers. Questions and review requests also need `addressee_id`; answers need `parent_id`. Use `POST /tasks/{task}/artifacts` with `{ "role":"artifact|attachment", "name":"…", "url":"https://…" }` for links, or `POST /tasks/{task}/files?role=artifact&name=report.txt` for uploads. Add and remove dependencies with `POST /tasks/{task}/dependencies` (`{ "depends_on":"<id-or-key>", "reason":"…" }`) and `DELETE /tasks/{task}/dependencies/{other}`; use the analogous `/links` endpoints for related tasks. A dependency blocks claimability until its task reaches a final stage. `GET /tasks/{task}/history` and `GET /events?after=<seq|latest>` expose audit history; retain each event response's `cursor` for the next request. `GET /events/stream?after=<seq|latest>` is the SSE equivalent.
+Use `POST /tasks/{task}/comments` with `kind` and `body` for comments, progress, decisions, problems, and answers. Questions and review requests also need `addressee_id`; answers need `parent_id`. Use `POST /tasks/{task}/artifacts` with `{ "role":"artifact|attachment", "name":"…", "url":"https://…" }` for links, or `POST /tasks/{task}/files?role=artifact&name=report.txt` for uploads. Add and remove dependencies with `POST /tasks/{task}/dependencies` (`{ "depends_on":"<id-or-key>", "reason":"…" }`) and `DELETE /tasks/{task}/dependencies/{other}`; use `POST /tasks/{task}/links` with `{ "related":"<id-or-key>" }` and `DELETE /tasks/{task}/links/{other}` for related tasks. A dependency blocks claimability until its task reaches a final stage. `GET /tasks/{task}/history` and `GET /events?after=<seq|latest>` expose audit history; retain each event response's `cursor` for the next request. `GET /events/stream?after=<seq|latest>` is the SSE equivalent.
+
+## Profile and password
+
+Use `PATCH /me` with `{ "display_name":"New name" }` for a human self-name change, `PUT /me/password` with `{ "current_password":"…", "new_password":"…" }` for a human password change, and `PATCH /principals/{id}` with `{ "display_name":"New name" }` for an organization-admin rename. Passwords must be at least 12 characters. A successful self password change keeps the acting cookie session and invalidates other sessions.
 
 ## Create, update, and move tasks
 
@@ -100,15 +107,15 @@ curl -H "$H" -H "$J" -d '{"to_stage_id":"<stage-id>","version":4}' "$API/tasks/P
 | --- | --- | --- |
 | Identity | `GET|PATCH /me`, `PUT /me/password`, `GET /me/inbox` | any authenticated principal may read `/me`; only a non-delegated human may update its own name/password |
 | Organization | `PATCH /organization` with `{ "name":"…" }` | organization administrator |
-| Principals and credentials | `GET|POST /principals`; `GET|PATCH|DELETE /principals/{id}`; `PUT /principals/{id}/password`; `GET|POST /principals/{id}/grants`; `DELETE /grants/{id}`; `GET|POST /principals/{id}/tokens`; `DELETE /tokens/{id}`; `GET|POST /signup-links`; `DELETE /signup-links/{id}` | organization or permitted project administrator, depending on the target scope |
-| Projects and workflow | `GET|POST /projects`; `GET|PATCH /projects/{id}`; `POST /projects/{id}/stages`; `PATCH|DELETE /stages/{id}`; `PUT /projects/{id}/transition-rules` with `{ "rules":[{ "from_stage_id":"…", "to_stage_id":"…", "required_permission":"edit", "require_work_done":true }] }` | create/edit/admin grants as applicable |
+| Principals and credentials | `GET|POST /principals`; `GET|PATCH|DELETE /principals/{id}`; `PUT /principals/{id}/password`; `GET|POST /principals/{id}/grants`; `DELETE /grants/{id}`; `GET|POST /principals/{id}/tokens`; `DELETE /tokens/{id}`; `GET|POST /signup-links`; `DELETE /signup-links/{id}` | principals are readable within the organization; principal changes and signup links require organization admin; grants require admin in the target scope; normal token listing/issuance requires organization admin or the non-delegated human owner |
+| Projects and workflow | `GET|POST /projects`; `GET|PATCH /projects/{id}`; `POST /projects/{id}/stages`; `PATCH|DELETE /stages/{id}`; `PUT /projects/{id}/transition-rules` with `{ "rules":[{ "from_stage_id":"…", "to_stage_id":"…", "required_permission":"edit", "require_work_done":true }] }` | reading requires project visibility; creating a project requires organization admin; changing a project, its stages or transition rules requires admin for that project |
 | Tasks | `GET|POST /tasks`; `GET|PATCH /tasks/{task}`; `GET /tasks/{task}/context`; `GET /tasks/{task}/history`; `POST /tasks/{task}/stage` | visible project grant and operation-specific permission |
 | Work | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete,reopen,hold,unhold,revoke,reassign}` | holder, edit, or admin as described above |
 | Collaboration | `POST /tasks/{task}/{comments,artifacts,files,dependencies,links}`; `DELETE /tasks/{task}/{dependencies,links}/{other}`; `GET /artifacts/{id}/content` | visible project grant and operation-specific permission |
 | Delegation | `GET|POST /me/delegations`; `DELETE /tokens/{id}` | a bearer token, including a delegated token when the requested child scope/tasks are no wider than its own |
 | Events | `GET /events`, `GET /events/stream` | only events visible to the current credential |
 
-Permissions are `view`, `create`, `edit`, `claim`, `assign`, `review`, `approve`, and `admin`; `admin` includes all permissions in its organization or project scope. Delegations never add authority: their scopes and optional task list can only narrow the parent token, they expire with or before it, and revoking any ancestor revokes its descendants. Delegated tokens cannot manage credentials, change a self profile, or become organization administrators.
+Permissions are `view`, `create`, `edit`, `claim`, `assign`, `review`, `approve`, and `admin`; `admin` includes all permissions in its organization or project scope. Delegations never add authority: their scopes and optional task list can only narrow the parent token, they expire with or before it, and revoking any ancestor revokes its descendants. Delegated tokens cannot list or issue ordinary tokens, change a self profile/password, or acquire admin authority. They may create narrower delegations and revoke themselves or descendant tokens. Choose an expiry in the future that does not exceed the parent expiry; the date below is illustrative.
 
 ```sh
 # The current bearer token (root or delegated) may issue this narrower child.

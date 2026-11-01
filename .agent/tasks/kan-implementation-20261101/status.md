@@ -58,3 +58,7 @@ Correction delegation: /home/kino/.local/state/herdr-watch/20261101T203013-KAN-g
 Received frontend commits d019d64 and 5db1699; reviewed AccountSettings, Admin and App integration. Returned recoverable identity-refresh failure (global fatal unmount drops form state) and verification gaps to kan-frontend. Need exact successful controlled-browser evidence and real-backend isolated browser walkthrough before acceptance. Existing backend guide correction is still pending. No live deployment or completion transitions performed.
 
 Frontend correction delegation: /home/kino/.local/state/herdr-watch/20261101T203505-KAN-settings-recovery-and-integration-ve-31df35 → kan-frontend (wK:pC). Await reply notification; do not poll.
+
+
+### Backend acceptance
+Guide fixes da77939/c507a21 reviewed; director clarified remaining static permission/payload descriptions and reran access tests (20/20). Seven formatting-only files restored without semantic changes. KAN-5 accepted. Pending live action: finish its existing implementation claim and move to 完了, with commit/test evidence and explicit note that running server has not been restarted. KAN-1–4 remain pending frontend correction and real-backend browser results.
