@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from principal_tree import extra_principals, assert_principal_tree
 
 WEB=Path(__file__).resolve().parents[1]
 STATE=Path.home()/'.local/state/agent-native-kanban-ui-tests'
@@ -58,11 +59,12 @@ def principal_work():
             {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'paused','acquired_at':'2026-11-01T00:00:00.000Z'},
         ]
     return {'principals':[
-        {**agent_child,'work':[]},
+        {**agent_child,'work':agent_work},
         {**independent,'work':[]},
         {**agent,'work':agent_work},
         {**missing_creator,'work':[]},
         {**human,'work':[]},
+        *[{**principal,'work':[]} for principal in extra_principals(agent,human)],
     ]}
 FUTURE='2099-01-01T00:00:00.000Z'
 def token(id,name,**fields):
@@ -328,27 +330,12 @@ try:
         page.get_by_text('作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。',exact=True).wait_for()
         agent_row=page.locator('[data-principal="agent-1"]')
         principal_rows=page.locator('table.settings-table').nth(1).locator('tbody tr')
-        assert principal_rows.count()==5
-        assert principal_rows.evaluate_all('rows => rows.map(row => row.dataset.principal)')==['human-2','agent-3','human-1','agent-1','agent-2']
-        indents=principal_rows.evaluate_all('rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector(".principal-tree")).paddingInlineStart]))')
-        assert indents=={'human-2':'0px','agent-3':'0px','human-1':'0px','agent-1':'18px','agent-2':'36px'}
-        assert agent_row.locator('.principal-name').inner_text()=='Orchestrator'
-        assert agent_row.locator('.principal-creator').inner_text()=='作成元 Auditor'
-        assert page.locator('[data-principal="agent-2"] .principal-name').inner_text()=='Builder'
-        assert page.locator('[data-principal="agent-2"] .principal-creator').inner_text()=='作成元 Orchestrator'
-        assert page.locator('[data-principal="agent-3"] .principal-creator').count()==0
-        assert page.get_by_label('作成元 Auditor').count()==1
-        assert page.get_by_label('作成元 Orchestrator').count()==1
-        assert '委譲' not in ''.join(principal_rows.all_inner_texts())
-        alignment=agent_row.evaluate('row => { const tree=row.querySelector(".principal-tree").getBoundingClientRect(); const cells=[...row.querySelectorAll("td")].slice(1).map(cell => cell.getBoundingClientRect()); return { treeCenter: tree.y + tree.height / 2, rowHeight: row.getBoundingClientRect().height, cellCenters: cells.map(cell => cell.y + cell.height / 2) }; }')
-        assert alignment['rowHeight'] > 40
-        assert all(abs(center-alignment['treeCenter']) < .5 for center in alignment['cellCenters'])
-        results['principal_creation_tree']={'nested':['Auditor','Orchestrator','Builder'],'roots':['Former creator','Independent'],'count':principal_rows.count(),'tall_row_aligned':True}
+        results['principal_creation_tree']=assert_principal_tree(page)
         assert agent_row.get_by_role('link',name='DEV-1 Task 1',exact=True).count()==1
         assert agent_row.get_by_role('link',name='DEV-2 Task 2',exact=True).count()==1
         assert '取得済み' in agent_row.inner_text()
         assert '作業中' in agent_row.inner_text()
-        assert page.locator('tr').filter(has_text='Auditor').get_by_text('作業なし',exact=True).count()==1
+        assert page.locator('[data-principal="human-1"]').get_by_text('作業なし',exact=True).count()==1
         requests.clear()
         state['principal_work_changed']=True
         with page.expect_response(lambda r:r.url.endswith('/api/v1/principals/work')):

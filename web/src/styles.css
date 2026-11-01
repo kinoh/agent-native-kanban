@@ -176,9 +176,14 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .task-table, .settings-table { width: 100%; border-collapse: collapse; }
 .task-table th, .settings-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .task-table td, .settings-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-2); vertical-align: middle; }
-.principal-cell { display: table-cell; }
+.principal-cell { display: table-cell; position: relative; }
 .principal-tree { min-width: max-content; }
-.principal-creator { color: var(--muted); font-size: 10px; }
+/* Extend through the cell padding and collapsed row border, including tall work rows. */
+.principal-branch { position: absolute; top: -1px; bottom: -1px; pointer-events: none; color: var(--muted); }
+.principal-branch-through { border-inline-start: 1px solid currentColor; }
+.principal-branch-end::before { content: ""; position: absolute; top: 0; height: calc(50% + .5px); width: 13px; border-inline-start: 1px solid currentColor; border-bottom: 1px solid currentColor; }
+.principal-branch-through.principal-branch-end::before { inset-inline-start: -1px; }
+.principal-branch-down { top: calc(50% + 11px); border-inline-start: 1px solid currentColor; }
 .principal-work { list-style: none; margin: 0; padding: 0; }
 .principal-work li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
 .task-table tbody tr { cursor: pointer; }

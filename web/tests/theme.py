@@ -10,6 +10,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from principal_tree import extra_principals, assert_principal_tree
 
 WEB = Path(__file__).resolve().parents[1]
 SCREENSHOTS = Path.home() / ".local/state/agent-native-kanban/theme/screenshots"
@@ -71,7 +72,7 @@ def api_route(state):
         elif path == "/principals": body = {"principals": [human, agent, agent_child, missing_creator, independent]}
         elif path == "/principals/work":
             work = {"key": "THEME-1", "title": "配色を確認する", "project": {"id": project["id"], "key": project["key"], "name": project["name"]}, "activity": "working", "acquired_at": "2026-11-01T00:00:00.000Z"}
-            body = {"principals": [{**agent_child, "work": []}, {**independent, "work": []}, {**agent, "work": [work, {**work, "key": "THEME-2", "title": "作成関係を確認する"}]}, {**missing_creator, "work": []}, {**human, "work": []}]}
+            body = {"principals": [{**agent_child, "work": [work, {**work, "key": "THEME-2"}]}, {**independent, "work": []}, {**agent, "work": [work, {**work, "key": "THEME-2", "title": "作成関係を確認する"}]}, {**missing_creator, "work": []}, {**human, "work": []}, *[{**principal, "work": []} for principal in extra_principals(agent, human)]]}
         elif path == "/resources":
             hold = {"id": "hold-1", "reason": "受け入れテストを実行する", "acquired_at": "2026-11-01T00:00:00.000Z", "holder": {"id": agent["id"], "kind": agent["kind"], "display_name": agent["display_name"], "status": agent["status"]}}
             body = {"resources": [{"id": "resource-1", "org_id": "org-1", "project_id": None, "name": "テスト環境", "description": "統合テスト用の環境", "capacity": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "holds": [hold]}]}
@@ -116,22 +117,16 @@ def verify_page(page, path, ready, theme, screenshot):
     assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == theme
     assert_readable(page, screenshot)
     if path == "/admin":
-        rows = page.locator("table.settings-table").nth(1).locator("tbody tr")
-        assert rows.count() == 5
-        assert rows.evaluate_all("rows => rows.map(row => row.dataset.principal)") == ["human-2", "agent-3", "human-1", "agent-1", "agent-2"]
-        indents = rows.evaluate_all("rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector('.principal-tree')).paddingInlineStart]))")
-        assert indents == {"human-2": "0px", "agent-3": "0px", "human-1": "0px", "agent-1": "18px", "agent-2": "36px"}
-        assert rows.nth(3).locator(".principal-name").inner_text() == "Theme Agent"
-        assert rows.nth(3).locator(".principal-creator").inner_text() == "作成元 Theme User"
-        assert rows.nth(4).locator(".principal-name").inner_text() == "Theme Builder"
-        assert rows.nth(4).locator(".principal-creator").inner_text() == "作成元 Theme Agent"
-        assert rows.nth(1).locator(".principal-creator").count() == 0
-        assert page.get_by_label("作成元 Theme User").count() == 1
-        assert page.get_by_label("作成元 Theme Agent").count() == 1
-        assert "委譲" not in "".join(rows.all_inner_texts())
-        alignment = rows.nth(3).evaluate("row => { const tree = row.querySelector('.principal-tree').getBoundingClientRect(); const cells = [...row.querySelectorAll('td')].slice(1).map(cell => cell.getBoundingClientRect()); return { treeCenter: tree.y + tree.height / 2, rowHeight: row.getBoundingClientRect().height, cellCenters: cells.map(cell => cell.y + cell.height / 2) }; }")
-        assert alignment["rowHeight"] > 40
-        assert all(abs(center - alignment["treeCenter"]) < .5 for center in alignment["cellCenters"])
+        assert_principal_tree(page)
+        lines = page.locator('.principal-branch').evaluate_all("""elements => elements.map(element => {
+            let background = element.parentElement;
+            while (background && getComputedStyle(background).backgroundColor === 'rgba(0, 0, 0, 0)') background = background.parentElement;
+            return {foreground:getComputedStyle(element).color, background:getComputedStyle(background || document.body).backgroundColor};
+        })""")
+        assert lines
+        minimum = min(contrast(line['foreground'], line['background']) for line in lines)
+        assert minimum >= 3, (theme, minimum)
+        print(f"{theme} principal tree minimum line contrast: {minimum:.2f}:1")
     if path == "/projects/THEME/board" and page.locator("[data-task=THEME-1]").count() == 1:
         card = page.locator("[data-task=THEME-1]")
         assert card.get_by_role("link", name="THEME-2", exact=True).count() == 1
