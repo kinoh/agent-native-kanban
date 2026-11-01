@@ -286,18 +286,27 @@ try:
         assert 'HIDDEN-9' not in waiting_card.inner_text()
         assert 'Hidden dependency title' not in waiting_card.inner_text()
         assert 'secret approval reason' not in waiting_card.inner_text()
-        waiting_card.get_by_role('link',name='DEV-1',exact=True).click()
+        waiting_card.locator('.card-work').click()
+        blocker_link=waiting_card.get_by_role('link',name='DEV-1',exact=True)
+        blocker_link.focus()
+        page.keyboard.press('Enter')
         page.wait_for_url('**/tasks/DEV-1')
         page.get_by_label('タイトル').wait_for()
-        state['blockers_complete']=True
         page.goto(base+'/projects/DEV/board')
         waiting_card=page.locator('[data-task="DEV-2"]')
         waiting_card.get_by_text('条件待ち',exact=True).wait_for()
+        waiting_card.get_by_role('link',name='DEV-1',exact=True).click()
+        page.wait_for_url('**/tasks/DEV-1')
+        page.get_by_label('タイトル').wait_for()
+        page.goto(base+'/projects/DEV/board')
+        waiting_card=page.locator('[data-task="DEV-2"]')
+        waiting_card.get_by_text('条件待ち',exact=True).wait_for()
+        state['blockers_complete']=True
         with page.expect_response(lambda r:'/api/v1/tasks?' in r.url):
             page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
         waiting_card.get_by_text('着手可',exact=True).wait_for()
         assert waiting_card.get_by_role('list',name='依存先').count()==0
-        results['visible_blockers']={'key_and_reason':True,'hidden_blocker_details_absent':True,'dependency_navigation':True,'live_completion_update':True}
+        results['visible_blockers']={'key_and_reason':True,'hidden_blocker_details_absent':True,'dependency_navigation':True,'keyboard_dependency_navigation':True,'live_completion_update':True}
         page.goto(base+'/admin')
         page.get_by_text('作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。',exact=True).wait_for()
         agent_row=page.locator('tr').filter(has_text='Orchestrator')

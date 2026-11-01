@@ -113,7 +113,8 @@ export function BoardView({ project, session }: { project: Project; session: Ses
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey || creating || moving) {
+      const focusedControl = event.target instanceof HTMLElement ? event.target.closest("a, button") : null;
+      if (isTyping(event.target) || focusedControl || event.metaKey || event.ctrlKey || event.altKey || creating || moving) {
         return;
       }
       const column = columns.findIndex((item) => item.tasks.some((task) => task.key === selected));

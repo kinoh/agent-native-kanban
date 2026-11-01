@@ -52,3 +52,28 @@ Questions: if the card is ambiguous or a card decision does not fit the code, st
 - 実装コミット: `5662cbc 条件待ちカードから依存先を辿れるようにする`。この記録をコミット後に director へ報告する。作業ツリーの未コミット差分は残さない。
 - 2026-11-02 JST: director が `settings_integration.py` の既定ランダムポート・既定 state での実行を承認した。テストファイルは変更せず、次の操作で共用ロックを取得して `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py` を実行する。
 - 2026-11-02 JST: 承認済みの既定資源で `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py` を実行し exit 0。次: この検証結果をコミットし、director へ報告する。
+- 2026-11-02 JST: 独立レビューで2点の差し戻し。選択カード内の依存先リンクにフォーカスして Enter を押すと、window の共通ショートカットがリンク既定操作より先に選択カードへ遷移する。また `behavior.py` は `blockers_complete=True` 後に再読込してから「条件待ち」を待っており、reviewer の実行ログ `/home/kino/.local/state/agent-native-kanban/review-kan-15/behavior.py.log` は行295で30秒タイムアウトを記録している。
+- 2026-11-02 JST: 前回この worker が記録した `behavior.py` exit 0 は訂正する。直接実行のツール応答は exit 0 / 出力なしだったが、成功時に同スクリプトが出力する JSON は残っていない。共有 `~/.local/state/agent-native-kanban-ui-tests/results.json` は現在 01:30:37 に別作業の内容（`latest_review_result` 等）へ上書きされ、当時の結果を復元できない。reviewer はポート・state のみ差し替え、同一の検証ロジックを実行して失敗ログを残している。したがって前回の成功記録と独立結果が食い違った正確な原因は、残存するログ・実行記録からは確定できない。一方で現在のソース順序と reviewer のスタックトレースは失敗を整合して示すため、前回の成功記録は根拠不足だった。
+- 2026-11-02 JST: 次の操作（対象: `web/src/views/Board.tsx`、`web/tests/behavior.py`、本 work record）で、リンク/ボタンにフォーカス中はボード共通ショートカットを処理せず、選択カードの依存先リンクを Enter で開く回帰テストを加える。ライブ更新テストは「条件待ち」を確認してから完了状態へ変更し、イベントを送る順に訂正する。
+- 2026-11-02 JST: 修正済み。Board の共通キーハンドラは anchor/button がイベント元なら return し、リンク固有の Enter 既定操作へ委ねる。`behavior.py` は選択カードの `.card-work` をクリックして依存キーへ focus → Enter → DEV-1 遷移を確認し、未完了表示を再度確認してから `blockers_complete=True` とイベント送信を行う順に変更した。次: ビルドと web 3本、cargo test を再実行する。
+- 2026-11-02 JST: `npm --prefix web run build` は exit 0。`flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/behavior.py` は exit 0。`visible_blockers` にキー/理由、マウス遷移、選択カードの依存リンクを Enter で開く遷移、hidden blocker 非露出、イベント後更新の全てが true と出力された。次: 同じロックで `theme.py`、`settings_integration.py` を実行する。
+- 2026-11-02 JST: `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/theme.py` は exit 0、`flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py` も exit 0。次: `cargo test` を再実行する。
+- 2026-11-02 JST: 修正後の `cargo test` は exit 0。web 3本と Rust suite の再検証が全て成功した。
+
+### 差し戻し修正の検証
+
+- 選択済みカードの依存キーへフォーカスして Enter: Board の共通キーハンドラは anchor/button 起点のキーを処理しないため、リンクの既定操作が DEV-1 へ遷移する。修正後 `behavior.py` の `visible_blockers.keyboard_dependency_navigation: true` を実出力で確認した。
+- 依存先完了後の更新: `behavior.py` は未完了の DEV-2 を表示・確認してから `blockers_complete=True` に切り替え、SSE を発火する。修正後 `visible_blockers.live_completion_update: true` を実出力で確認した。
+- 前回の誤った `behavior.py` 成功記録は上記の独立レビュー記録どおり訂正済み。今回の成功は、標準出力に `visible_blockers` の5項目がすべて true と出た同一 worker の直列実行を根拠とする。
+
+### 修正後の検証結果
+
+- `npm --prefix web run build`: exit 0。
+- `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/behavior.py`: exit 0。visible blockers、hidden blocker 非露出、マウス/Enter 遷移、イベント後更新を確認。
+- `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/theme.py`: exit 0。
+- `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py`: exit 0。
+- `cargo test`: exit 0。
+
+### 引き継ぎ（差し戻し修正）
+
+- 変更対象: `web/src/views/Board.tsx`、`web/tests/behavior.py`、本 work record。次: 差分を確認して日本語コミットを作成し、director へ報告する。
