@@ -102,6 +102,13 @@ export interface Task {
   updated_at: string;
   discard: Discard | null;
   work: Work;
+  latest_review_result: ReviewResult | null;
+}
+
+export interface ReviewResult {
+  body: string;
+  author: PrincipalRef;
+  created_at: string;
 }
 
 export type Priority = "urgent" | "high" | "medium" | "low" | "none";

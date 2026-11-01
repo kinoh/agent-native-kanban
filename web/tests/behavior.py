@@ -30,7 +30,10 @@ new_stage={**stage,'id':'stage-2','name':'Review','position':1}
 project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','stages':[stage],'transition_rules':[]}
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
-    return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','discard':None,'work':work}
+    review=None
+    if i==1 and state.get('review_mode')=='latest': review={'body':'合否を決めない自由形式の指摘。応答本文を確認する。','author':agent,'created_at':'2026-11-02T01:02:03.000Z'}
+    if i==1 and state.get('review_mode')=='updated': review={'body':'再レビュー: 例外の表示も確認する。','author':agent,'created_at':'2026-11-03T01:02:03.000Z'}
+    return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','discard':None,'work':work,'latest_review_result':review}
 def discard_task(i):
     final={**stage,'id':'stage-final','name':'Done','position':2,'requires_work':False,'is_final':True}
     if i==1 and state['discard_view']:
@@ -38,7 +41,7 @@ def discard_task(i):
     if i==2 and state['discard_view']:
         return {**task(2),'work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'needs it','discarded':True}]}}
     return task(i)
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False,'review_mode':'latest'}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 def principal_work():
@@ -175,7 +178,9 @@ def route(r):
     elif path=='/tasks/DEV-1/context':
         history=[{'seq':1,'type':'work.claimed','category':'work','actor':agent,'delegated_token_id':'live-token-bbbbbbbb','data':{},'created_at':'2026-11-01T00:00:00.000Z'},
                  {'seq':2,'type':'work.released','category':'work','actor':agent,'delegated_token_id':None,'data':{},'created_at':'2026-11-01T00:00:00.000Z'}]
-        body={'task':discard_task(1) if state['mode']=='discard' else task(1),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':[],'artifacts':[],'history':history}
+        review=task(1)['latest_review_result']
+        comments=[] if review is None else [{'id':'review-1','kind':'review_result','body':review['body'],'addressee_id':None,'parent_id':None,'resolved_at':None,'created_at':review['created_at'],'author':review['author']}]
+        body={'task':discard_task(1) if state['mode']=='discard' else task(1),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':comments,'artifacts':[],'history':history}
     elif path=='/tasks/DEV-2/context':
         body={'task':discard_task(2),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':[],'artifacts':[],'history':[]}
     elif path.startswith('/tasks?'):
@@ -230,6 +235,25 @@ try:
         state['mode']='stage' 
         page.goto(base+'/projects/DEV/board')
         page.wait_for_selector('[data-task="DEV-1"]')
+        review=page.locator('[data-task="DEV-1"] .card-review')
+        review.get_by_text('合否を決めない自由形式の指摘。応答本文を確認する。',exact=True).wait_for()
+        assert 'Orchestrator' in review.inner_text()
+        assert review.get_by_text('レビュー未実施',exact=True).count()==0
+        review.get_by_role('link',name='詳細',exact=True).click()
+        page.get_by_text('合否を決めない自由形式の指摘。応答本文を確認する。',exact=True).wait_for()
+        page.go_back(); page.wait_for_selector('[data-task="DEV-1"]')
+        requests.clear()
+        state['review_mode']='updated'
+        with page.expect_response(lambda r:'/api/v1/tasks?' in r.url):
+            page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
+        page.get_by_text('再レビュー: 例外の表示も確認する。',exact=True).wait_for()
+        requests.clear()
+        state['review_mode']='none'
+        with page.expect_response(lambda r:'/api/v1/tasks?' in r.url):
+            page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
+        review.get_by_text('レビュー未実施',exact=True).wait_for()
+        results['latest_review_result']={'free_form_body':True,'detail_link':True,'live_update':any(path.startswith('/tasks?') for path in requests),'no_review':True}
+        assert results['latest_review_result']['live_update']
         requests.clear()
         state['moved']=True
         with page.expect_response(lambda r:'/api/v1/tasks?' in r.url):

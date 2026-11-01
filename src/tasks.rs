@@ -98,6 +98,7 @@ pub struct TaskRow {
     pub responsible: Option<PrincipalRef>,
     pub assignee: Option<PrincipalRef>,
     pub blockers: Vec<Blocker>,
+    pub latest_review_result: Option<ReviewResultView>,
 }
 
 fn principal_ref(row: &Row<'_>, prefix: &str) -> rusqlite::Result<Option<PrincipalRef>> {
@@ -160,6 +161,7 @@ fn task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
         responsible: principal_ref(row, "responsible")?,
         assignee: principal_ref(row, "assignee")?,
         blockers: Vec::new(),
+        latest_review_result: None,
     })
 }
 
@@ -210,6 +212,46 @@ pub fn load_tasks(
         if let Some(blockers) = by_task.remove(&task.id) {
             task.blockers = blockers;
         }
+    }
+
+    // 一覧の各タスクごとにコメントを問い合わせず、対象タスク全体から直近のレビュー結果を
+    // 一度だけ選ぶ。コメントはタスク本体と同じ閲覧範囲でだけ TaskView に載せる。
+    let reviews_sql = format!(
+        "WITH ranked AS (
+            SELECT c.task_id, c.body, c.created_at,
+                   a.id, a.kind, a.display_name, a.status,
+                   ROW_NUMBER() OVER (PARTITION BY c.task_id ORDER BY c.created_at DESC, c.id DESC) AS position
+              FROM comments c
+              JOIN principals a ON a.id = c.author_id
+             WHERE c.kind = 'review_result'
+               AND c.task_id IN (SELECT t.id FROM tasks t WHERE {filter})
+         )
+         SELECT task_id, body, created_at, id, kind, display_name, status
+           FROM ranked WHERE position = 1"
+    );
+    let mut statement = conn.prepare(&reviews_sql)?;
+    let reviews = statement.query_map(params_from_iter(args.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            ReviewResultView {
+                body: row.get(1)?,
+                created_at: row.get(2)?,
+                author: PrincipalRef {
+                    id: row.get(3)?,
+                    kind: row.get(4)?,
+                    display_name: row.get(5)?,
+                    status: row.get(6)?,
+                },
+            },
+        ))
+    })?;
+    let mut by_task = HashMap::new();
+    for review in reviews {
+        let (task_id, review) = review?;
+        by_task.insert(task_id, review);
+    }
+    for task in &mut tasks {
+        task.latest_review_result = by_task.remove(&task.id);
     }
     Ok(tasks)
 }
@@ -324,6 +366,13 @@ pub struct WorkView {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ReviewResultView {
+    pub body: String,
+    pub author: PrincipalRef,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TaskView {
     pub id: String,
     pub key: String,
@@ -344,6 +393,8 @@ pub struct TaskView {
     pub updated_at: String,
     pub discard: Option<Discard>,
     pub work: WorkView,
+    /// 同じタスク上で最後に記録されたレビュー結果。レビューが未実施なら null。
+    pub latest_review_result: Option<ReviewResultView>,
 }
 
 pub fn priority_name(value: i64) -> &'static str {
@@ -421,6 +472,7 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
                 .collect(),
             hidden_blockers: hidden.len(),
         },
+        latest_review_result: task.latest_review_result.clone(),
     })
 }
 
