@@ -44,9 +44,11 @@ Questions: if the card is ambiguous or a card decision does not fit the code, st
 - `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/theme.py`: 最初は既存エラー画面へ新規カード検証を適用したテスト不備で exit 1、カード存在時だけ確認するよう修正後は exit 0。スクリーンショットは `~/.local/state/agent-native-kanban/theme/screenshots/`。
 - `cargo test`: exit 0、全 Rust suite 成功（Herdr 記録 `/home/kino/.local/state/herdr-watch/20261102T012636-KAN-15-cargo-test-119064/result.json`）。
 - `cargo build`: exit 0。
-- `python3 web/tests/settings_integration.py`: 未実行。既存テストはランダムなポートと `~/.local/state/agent-native-kanban/settings-integration/` を固定使用するため、割当の port 18824 / `~/.local/state/agent-native-kanban/kan-15/` 制約に反する。テストを変更して専用資源を受け取れるようにするか、既存資源での実行を承認するか、director の判断が必要。
+- `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py`: director 承認後に既定のランダムポート・既定 state で実行し、exit 0（account、session、organization、agent、human rename checks passed）。テストファイルは変更していない。
 
 ### 引き継ぎ
 
 - 変更対象: `web/src/views/Board.tsx`、`web/src/styles.css`、`web/tests/behavior.py`、`web/tests/theme.py`、本 work record。
 - 実装コミット: `5662cbc 条件待ちカードから依存先を辿れるようにする`。この記録をコミット後に director へ報告する。作業ツリーの未コミット差分は残さない。
+- 2026-11-02 JST: director が `settings_integration.py` の既定ランダムポート・既定 state での実行を承認した。テストファイルは変更せず、次の操作で共用ロックを取得して `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py` を実行する。
+- 2026-11-02 JST: 承認済みの既定資源で `flock ~/.local/state/agent-native-kanban/web-tests.lock python3 web/tests/settings_integration.py` を実行し exit 0。次: この検証結果をコミットし、director へ報告する。
