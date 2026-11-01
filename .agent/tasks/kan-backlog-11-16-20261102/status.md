@@ -30,7 +30,7 @@ The director does not claim review work and does not assign reviewers: a reviewe
 
 KAN-15 was rejected by review-kan-15 (wX:p1) at be54113, with the result posted on the card by the director; report: /home/kino/.local/state/herdr-watch/20261102T012803-KAN-15-1b0c70/report.md. The review claim was released and the card returned to 実装, new claim 01a197f4-711e-7202-82d0-3ec126209762. The worker recorded behavior.py exit 0 but the reviewer reproduced a timeout at the same code; the worker could not establish the cause from the remaining logs and corrected its record. Fixed at 0d28d28, card back in レビュー, re-review pending. KAN-12 (8d49f95), KAN-13 (c1ec2f9), KAN-16 (e2cf076) wait in レビュー for a reviewer.
 
-Review claims: KAN-12 01a197f7-4f68-73ef-8ad7-73a1e6ab0faa, KAN-13 01a197f7-4f77-74d1-bafa-67708b29a888, KAN-15 01a197f7-4f89-766f-92e9-be4faa1d6848, KAN-16 01a197f7-4f96-71fd-8d12-e782d68bce19
+Review claims: KAN-12 01a197f7-4f68-73ef-8ad7-73a1e6ab0faa, KAN-13 01a197f7-4f77-74d1-bafa-67708b29a888, KAN-15 01a197f7-4f89-766f-92e9-be4faa1d6848, KAN-16 01a197f7-4f96-71fd-8d12-e782d68bce19, KAN-11 01a197f7-d7f4-772d-bcf0-85ed1b1b8287, KAN-14 01a197f7-d814-7514-9acf-1230c3b9a779
 
 ## Remaining
 Workers are delegated. When a worker reports, start its independent reviewer as in reviewer.md, return blocking findings to the worker, re-review, then ask the user about merging, the review stage and deployment.
