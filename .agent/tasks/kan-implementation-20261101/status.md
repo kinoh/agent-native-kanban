@@ -1,7 +1,7 @@
 # Status
 
-Last updated: 2026-11-01 20:23 JST. Director: wK:p1. Branch: main, shared checkout.
-State: two independent implementation workers delegated; awaiting notification replies.
+Last updated: 2026-11-01 20:42 JST. Director: wK:p1. Branch: main, shared checkout.
+State: COMPLETE — all five cards implemented, reviewed, verified, and completed on the live board.
 
 | Worker | Model | Pane | Ownership | Record |
 |---|---|---|---|---|
@@ -70,3 +70,13 @@ KAN-5 live outcome verified: 完了, unoccupied; implementation summary contains
 Received d1df3a7/b6ea70a; director reviewed separation of initial-load and action refresh errors, controlled test results.json (all checks successful, browser_errors empty), and settings_integration.py real-server flows. No remaining implementation blocker found. Before completing KAN-1–4, director will rebuild current backend/frontend and run the isolated real-server browser suite once with durable watcher output; this closes the missing independent integration execution evidence. The script uses generated isolated data, a random loopback port, and closes its own server. Live server remains unchanged.
 
 Final acceptance watcher: wK:pP, /home/kino/.local/state/herdr-watch/20261101T204135-KAN-final-integrated-settings-acceptance-a3bebb. Pending command cargo build && npm --prefix web run build && python3 web/tests/settings_integration.py. Await notification, inspect result/output, close owned watcher pane, then finish KAN-1–4 if successful.
+
+
+### Final acceptance outcome
+Director watcher succeeded, exit 0: cargo build, npm --prefix web run build, python3 web/tests/settings_integration.py. Inspected output confirms all real-server account/session/admin flows passed. Closed owned watcher pane wK:pP. Reviewed controlled recovery checks and source; accepted KAN-1–4. Pending live operation: complete their original work claims and move each to 完了.
+- KAN-4: completion summary and evidence saved; final stage 完了 verified, no occupant.
+- KAN-2: completion summary and evidence saved; final stage 完了 verified, no occupant.
+- KAN-3: completion summary and evidence saved; final stage 完了 verified, no occupant.
+- KAN-1: completion summary and evidence saved; final stage 完了 verified, no occupant.
+
+All KAN-1–5 verified in 完了 without active claims. Implementation, review corrections, and acceptance checks complete. No pending worker or watcher operation. Worker panes retained idle. Running backend was not restarted; release deployment remains outside this task.
