@@ -65,4 +65,8 @@ No server has been started and the worktree was clean on entry. Next: add the sc
 11. Realtime screen: browser `resources` result confirms external hold refresh without reload; all create/edit/delete/acquire/release/revoke controls were exercised.
 12. Guide/README/DRAFT: implementation documentation was added and the public guide is covered by the passing guide tests; it documents shared hold reasons and forbids secrets.
 
-Next: review final diff, create the required commit, then write the director report.
+### Delivery
+
+- Final implementation commit: `0fafda4 共有リソースを安全に確保できるようにする`.
+- Worktree was clean immediately after that commit. No server or port remains in use.
+- Next: send the director report through the assigned herdr-watch reply path.
