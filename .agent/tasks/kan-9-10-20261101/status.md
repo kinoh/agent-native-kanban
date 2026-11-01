@@ -1,15 +1,15 @@
 # Status
 
-Last updated: 2026-11-01 JST. State: IMPLEMENTED — KAN-10 and KAN-9 are implemented and verified on their branches, and are in レビュー on the live board. Not merged into main; the live server has not been rebuilt or restarted.
+Last updated: 2026-11-01 JST. State: MERGED — KAN-10 and KAN-9 are implemented, reviewed by the user, completed on the live board and merged into main (a4d92c4). The live server has not been rebuilt or restarted.
 
-User request: 「バックログアイテムを実装可能にして」 then 「実装して」. Implemented directly by the user-facing Claude session without worker agents. Merging, deploying and completing the cards were not requested and remain the user's decision.
+User request: 「バックログアイテムを実装可能にして」 then 「実装して」. Implemented directly by the user-facing Claude session without worker agents. The user reviewed both cards, moved them to 完了 and requested the merge. Deploying has not been requested.
 
 | Card | Branch / worktree | Commits |
 |---|---|---|
 | KAN-10 | kan-10-project-overview, ../kan-10 | 0175a80 |
 | KAN-9 | kan-9-discard, ../kan-9 (based on the KAN-10 branch) | dff623d and later test and record commits |
 
-Merging kan-9-discard brings KAN-10 with it.
+Merging kan-9-discard brought KAN-10 with it.
 
 ## Decisions agreed with the user
 

@@ -4,4 +4,4 @@
 
 - [KAN-6〜8 implementation](tasks/kan-backlog-6-8-20261101/brief.md): completed; one Herdr worker per card in separate worktrees, reviewed and merged into main. [Status](tasks/kan-backlog-6-8-20261101/status.md)
 
-- [KAN-9・KAN-10 implementation](tasks/kan-9-10-20261101/status.md): implemented on branches and in レビュー; not merged or deployed.
+- [KAN-9・KAN-10 implementation](tasks/kan-9-10-20261101/status.md): completed and merged into main; not deployed to the live server.
