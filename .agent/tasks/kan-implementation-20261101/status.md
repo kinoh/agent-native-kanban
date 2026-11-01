@@ -46,3 +46,7 @@ Director claimed/started all five cards as the existing agent principal. Claim I
 
 Next: on worker reply read its report and work record, inspect committed implementation and relevant checks, resolve integration issues, verify end-to-end criteria, then update cards with evidence. No deployment/restart/publication authorized. No waiting polls; notifications resume the director.
 Initial coordination commits: 3aecb3f, df5bcc6. API snapshot and contracts: cards.json and brief.md. No known blockers at dispatch.
+
+
+### Backend review, 2026-11-01
+Received backend report: commits 66a1b2c and 4d56bea. Verified full Rust test watcher succeeded (exit 0). Reviewed new org/self APIs and tests. KAN-5 not accepted: guide has stale-claim example, incorrect re-delegation authority and insufficient endpoint/payload detail; isolated guide walkthrough evidence absent. Backend worker reassigned corrections plus attribution/cleanup of seven formatting-only uncommitted backend files. Frontend still owns its concurrent changes; awaiting its reply.

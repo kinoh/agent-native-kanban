@@ -24,3 +24,13 @@ Implemented: added `GET /api/v1/guide` with a static UTF-8 Markdown contract; `P
 Verification completed: `cargo test --test access` (19 passed), `cargo test --test delegation` (19 passed), and full `cargo test` through herdr-watch (exit 0; watcher record `~/.local/state/herdr-watch/20261101T202758-KAN-backend-full-Rust-test-suite-a1e25a/`; work tests 11 passed; doc tests 0). The watcher pane `wK:pE` was closed after result inspection.
 
 Committed implementation and tests as `66a1b2c Add agent API guide and rename endpoints`, staging only this worker's owned paths while preserving the concurrent frontend and unrelated backend working-tree changes. Current state: worker scope complete; next action is report to director for integration review.
+
+
+## Director integration review — 2026-11-01
+Returned for corrections within existing KAN-5 scope:
+1. The guide's sequential lifecycle example releases a claim and then calls complete with that stale claim. Show one executable happy path (claim → start → records → complete), with pause/resume and release/transfer as explicitly separate alternatives. Verify it against isolated data, as the original assignment requires; keyword-presence tests alone are insufficient.
+2. Delegation table incorrectly requires a non-delegated bearer token: delegated tokens may re-delegate narrower authority. Correct to implementation and include an executable delegation request (expires_at, scopes, optional tasks), listing/revocation details.
+3. API map is too vague to discover usable methods/paths/request bodies (e.g. workflow rules are /projects/{id}/transition-rules, not a root route). Include exact implemented endpoints/methods and required payload examples, especially comments/artifacts, task creation/updates, stage move, hold/unhold/reopen and transfer. Document current errors and no-work/dependency/occupied distinctions. Keep static/no-secret nature.
+4. Confirm why seven uncommitted src/api/{admin,collab,delegation,feed,projects,tasks,work}.rs files now contain formatting-only changes although the checkout was clean at dispatch and frontend owns web/ only. Do not label them unrelated without evidence. If your formatter caused them, restore only those self-created formatting changes safely after confirming no other content changes; preserve other workers' files. Report cause and cleanup outcome. No broad restore/reset or formatting pass.
+5. Run appropriate guide workflow/contract validation and report exact evidence. Existing org/self rename APIs reviewed without a blocker so far. Do not rerun unaffected full suites without need; new tests/relevant tests suffice.
+Commit corrections and work-record result using the shared Git lock, then reply to director.
