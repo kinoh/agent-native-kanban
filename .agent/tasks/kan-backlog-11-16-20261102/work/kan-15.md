@@ -76,4 +76,5 @@ Questions: if the card is ambiguous or a card decision does not fit the code, st
 
 ### 引き継ぎ（差し戻し修正）
 
-- 変更対象: `web/src/views/Board.tsx`、`web/tests/behavior.py`、本 work record。次: 差分を確認して日本語コミットを作成し、director へ報告する。
+- 変更対象: `web/src/views/Board.tsx`、`web/tests/behavior.py`、本 work record。
+- 修正コミット: `5f20837 条件待ちカードのキーボード遷移を守る`。この記録をコミット後に director へ報告する。作業ツリーの未コミット差分は残さない。
