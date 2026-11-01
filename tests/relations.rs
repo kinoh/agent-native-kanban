@@ -83,7 +83,7 @@ async fn legacy_relation_events_obey_current_access_in_context_history_and_strea
         ] {
             emit(conn, EventInput {
                 org_id: &org, project_id: Some(&project.id), task_id: task["id"].as_str(),
-                actor_id: Some(&admin.id), category: "task", kind, data,
+                actor_id: Some(&admin.id), delegated_token_id: None, category: "task", kind, data,
             })?;
         }
         Ok(())

@@ -22,7 +22,7 @@ fn touch(conn: &Connection, task: &TaskRow) -> ApiResult<()> {
 }
 
 fn finish(conn: &Connection, actor: &Actor, task_id: &str) -> ApiResult<Json<TaskView>> {
-    refresh_claimable(conn, &actor.id, &with_dependents(conn, task_id)?)?;
+    refresh_claimable(conn, actor, &with_dependents(conn, task_id)?)?;
     Ok(Json(to_view(&load_task(conn, task_id)?, actor)?))
 }
 
@@ -42,6 +42,10 @@ fn require_claim(task: &TaskRow, actor: &Actor, claim_id: &str) -> ApiResult<()>
     let holds = task.claim_id.as_deref() == Some(claim_id)
         && task.occupant.as_ref().is_some_and(|holder| holder.id == actor.id);
     if holds {
+        // 委譲トークンは、作業権を知っていても現段階の取得権限なしには操作できない。
+        if actor.delegated {
+            actor.require(&task.project_id, task.claim_permission()?)?;
+        }
         return Ok(());
     }
     tracing::warn!(task = %task.id, actor = %actor.id, "rejected a stale claim");

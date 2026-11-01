@@ -27,6 +27,8 @@ fn project_event<'a>(
         project_id: Some(project_id),
         task_id: None,
         actor_id: Some(actor_id),
+        // admin は委譲できないので、ここへ委譲トークンは届かない。
+        delegated_token_id: None,
         category: "admin",
         kind,
         data,
@@ -374,7 +376,7 @@ pub async fn update_stage(
             }
             affected.sort();
             affected.dedup();
-            refresh_claimable(conn, &actor.id, &affected)?;
+            refresh_claimable(conn, &actor, &affected)?;
             Ok(Json(project_json(conn, &project_id)?))
         })
         .await

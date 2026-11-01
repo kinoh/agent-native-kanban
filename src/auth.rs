@@ -1,6 +1,6 @@
 //! 認証情報の扱いと、リクエストごとの主体（Actor）の解決。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -112,8 +112,15 @@ pub struct Actor {
     pub org_id: String,
     pub kind: String,
     pub display_name: String,
+    /// 実効権限。委譲トークンなら、主体の権限を委譲の範囲で絞ったもの。
     pub grants: Vec<Grant>,
     pub credential: Credential,
+    /// 認証に使った API トークンの ID。セッションでは持たない。
+    pub token_id: Option<String>,
+    /// 委譲トークンによる操作か。
+    pub delegated: bool,
+    /// タスクを限定した委譲トークンで、触れられるタスクの ID。
+    pub task_scope: Option<HashSet<String>>,
 }
 
 impl Actor {
@@ -134,6 +141,21 @@ impl Actor {
             .any(|g| g.permission == permission || g.permission == Permission::Admin)
     }
 
+    /// 委譲トークンによる操作なら、そのトークンの ID を返す。
+    pub fn delegated_token_id(&self) -> Option<&str> {
+        self.token_id.as_deref().filter(|_| self.delegated)
+    }
+
+    /// プロジェクト全体を見られるか。タスクを限定した委譲トークンは見られない。
+    pub fn sees_whole_project(&self, project_id: &str) -> bool {
+        self.task_scope.is_none() && self.can_view(project_id)
+    }
+
+    pub fn can_view_task(&self, project_id: &str, task_id: &str) -> bool {
+        self.can_view(project_id)
+            && self.task_scope.as_ref().is_none_or(|tasks| tasks.contains(task_id))
+    }
+
     /// プロジェクトに何らかの権限を持つ主体は閲覧できる。
     pub fn can_view(&self, project_id: &str) -> bool {
         self.grants_on(project_id).next().is_some()
@@ -150,13 +172,35 @@ impl Actor {
         if self.can(project_id, permission) {
             Ok(())
         } else {
+            self.log_delegated_denial(permission.as_str());
             Err(ApiError::forbidden(permission.as_str()))
         }
     }
 
     pub fn require_org_admin(&self) -> ApiResult<()> {
-        if self.is_org_admin() { Ok(()) } else { Err(ApiError::forbidden("admin")) }
+        if self.is_org_admin() {
+            Ok(())
+        } else {
+            self.log_delegated_denial("admin");
+            Err(ApiError::forbidden("admin"))
+        }
     }
+
+    pub fn log_delegated_denial(&self, needed: &str) {
+        if let Some(token) = self.delegated_token_id() {
+            tracing::warn!(actor = %self.id, %token, needed, "rejected an operation outside the delegation");
+        }
+    }
+}
+
+/// 主体の権限が、指定のプロジェクトでこの権限を含むか。閲覧は何らかの権限があれば含まれる。
+pub fn grants_cover(grants: &[Grant], project_id: &str, permission: Permission) -> bool {
+    grants.iter().any(|grant| {
+        grant.project_id.as_deref().is_none_or(|id| id == project_id)
+            && (permission == Permission::View
+                || grant.permission == permission
+                || grant.permission == Permission::Admin)
+    })
 }
 
 pub fn load_grants(conn: &Connection, principal_id: &str) -> ApiResult<Vec<Grant>> {
@@ -176,8 +220,94 @@ pub fn load_grants(conn: &Connection, principal_id: &str) -> ApiResult<Vec<Grant
     Ok(grants)
 }
 
+/// トークンから親へたどった委譲の範囲。リクエストごとに読むので、失効はすぐに反映される。
+struct Delegation {
+    scopes: Vec<(String, Permission)>,
+    task_scope: Option<HashSet<String>>,
+}
+
+fn load_scopes(conn: &Connection, token_id: &str) -> ApiResult<Vec<(String, Permission)>> {
+    let mut statement = conn
+        .prepare_cached("SELECT project_id, permission FROM token_scopes WHERE token_id = ?1")?;
+    let rows = statement.query_map([token_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut scopes = Vec::new();
+    for row in rows {
+        let (project_id, permission) = row?;
+        let permission = Permission::parse(&permission).ok_or_else(|| {
+            ApiError::internal(format!("unknown permission in token scope: {permission}"))
+        })?;
+        scopes.push((project_id, permission));
+    }
+    Ok(scopes)
+}
+
+/// 限定されたタスクと、その時点の子孫。タスクを限定していなければ `None`。
+fn load_task_scope(conn: &Connection, token_id: &str) -> ApiResult<Option<HashSet<String>>> {
+    let limited: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM token_tasks WHERE token_id = ?1)",
+        [token_id],
+        |row| row.get(0),
+    )?;
+    if !limited {
+        return Ok(None);
+    }
+    let mut statement = conn.prepare_cached(
+        "WITH RECURSIVE scope(id) AS (
+           SELECT task_id FROM token_tasks WHERE token_id = ?1
+           UNION SELECT t.id FROM tasks t JOIN scope s ON t.parent_id = s.id
+         )
+         SELECT id FROM scope",
+    )?;
+    let tasks = statement
+        .query_map([token_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    Ok(Some(tasks))
+}
+
+/// 委譲トークンから親へたどり、全ての委譲の範囲を重ねる。無効な親があれば `None`。
+fn load_delegation(
+    conn: &Connection,
+    token_id: &str,
+    first_parent: &str,
+    moment: &str,
+) -> ApiResult<Option<Delegation>> {
+    let mut delegation =
+        Delegation { scopes: load_scopes(conn, token_id)?, task_scope: load_task_scope(conn, token_id)? };
+    let mut parent = Some(first_parent.to_string());
+    while let Some(id) = parent {
+        let row: Option<(Option<String>, bool)> = conn
+            .query_row(
+                "SELECT parent_token_id, revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?2)
+                 FROM api_tokens WHERE id = ?1",
+                params![id, moment],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((next, true)) = row else {
+            tracing::warn!(token = %token_id, ancestor = %id, "rejected a token whose ancestor is no longer valid");
+            return Ok(None);
+        };
+        if next.is_some() {
+            let scopes = load_scopes(conn, &id)?;
+            delegation.scopes.retain(|scope| scopes.contains(scope));
+            if let Some(tasks) = load_task_scope(conn, &id)? {
+                delegation.task_scope = Some(match delegation.task_scope {
+                    Some(current) => current.intersection(&tasks).cloned().collect(),
+                    None => tasks,
+                });
+            }
+        }
+        parent = next;
+    }
+    Ok(Some(delegation))
+}
+
 pub fn load_actor(conn: &Connection, credential: &Credential) -> ApiResult<Actor> {
     let moment = now();
+    let mut token_id = None;
+    let mut parent_token_id = None;
     let principal_id: Option<String> = match credential {
         Credential::Session(hash) => conn
             .query_row(
@@ -186,14 +316,29 @@ pub fn load_actor(conn: &Connection, credential: &Credential) -> ApiResult<Actor
                 |row| row.get(0),
             )
             .optional()?,
-        Credential::Token(hash) => conn
-            .query_row(
-                "SELECT principal_id FROM api_tokens WHERE token_hash = ?1 AND revoked_at IS NULL
-                 AND (expires_at IS NULL OR expires_at > ?2)",
-                params![hash, moment],
-                |row| row.get(0),
-            )
-            .optional()?,
+        Credential::Token(hash) => {
+            let token: Option<(String, String, Option<String>)> = conn
+                .query_row(
+                    "SELECT id, principal_id, parent_token_id FROM api_tokens
+                     WHERE token_hash = ?1 AND revoked_at IS NULL
+                     AND (expires_at IS NULL OR expires_at > ?2)",
+                    params![hash, moment],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            token.map(|(id, principal_id, parent)| {
+                token_id = Some(id);
+                parent_token_id = parent;
+                principal_id
+            })
+        }
+    };
+    let delegation = match (&token_id, &parent_token_id) {
+        (Some(id), Some(parent)) => match load_delegation(conn, id, parent, &moment)? {
+            Some(delegation) => Some(delegation),
+            None => return Err(ApiError::unauthenticated("credential is invalid or expired")),
+        },
+        _ => None,
     };
     let Some(principal_id) = principal_id else {
         tracing::warn!("rejected an unknown, expired or revoked credential");
@@ -214,6 +359,18 @@ pub fn load_actor(conn: &Connection, credential: &Credential) -> ApiResult<Actor
         return Err(ApiError::unauthenticated("this principal is not active"));
     }
     let grants = load_grants(conn, &principal_id)?;
+    let delegated = delegation.is_some();
+    let (grants, task_scope) = match delegation {
+        Some(Delegation { scopes, task_scope }) => {
+            let effective = scopes
+                .into_iter()
+                .filter(|(project_id, permission)| grants_cover(&grants, project_id, *permission))
+                .map(|(project_id, permission)| Grant { project_id: Some(project_id), permission })
+                .collect();
+            (effective, task_scope)
+        }
+        None => (grants, None),
+    };
     Ok(Actor {
         id: principal_id,
         org_id,
@@ -221,6 +378,9 @@ pub fn load_actor(conn: &Connection, credential: &Credential) -> ApiResult<Actor
         display_name,
         grants,
         credential: credential.clone(),
+        token_id,
+        delegated,
+        task_scope,
     })
 }
 

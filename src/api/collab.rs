@@ -178,12 +178,12 @@ pub async fn inbox(State(state): State<AppState>, actor: Actor) -> ApiResult<Jso
                         "kind": row.get::<_, String>(10)?,
                     },
                 });
-                Ok((project_id, item))
+                Ok((project_id, row.get::<_, String>(4)?, item))
             })?;
             let mut items = Vec::new();
             for row in rows {
-                let (project_id, item) = row?;
-                if actor.can_view(&project_id) {
+                let (project_id, task_id, item) = row?;
+                if actor.can_view_task(&project_id, &task_id) {
                     items.push(item);
                 }
             }
@@ -331,17 +331,17 @@ pub async fn download(
     let (name, media_type, content) = state
         .db
         .read(move |conn| {
-            let row: Option<(String, String, String, Option<String>, Option<Vec<u8>>)> = conn
+            let row: Option<(String, String, String, String, Option<String>, Option<Vec<u8>>)> = conn
                 .query_row(
-                    "SELECT t.org_id, t.project_id, a.name, a.media_type, a.content
+                    "SELECT t.org_id, t.project_id, t.id, a.name, a.media_type, a.content
                      FROM artifacts a JOIN tasks t ON t.id = a.task_id WHERE a.id = ?1",
                     [&id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
                 )
                 .optional()?;
             match row {
-                Some((org_id, project_id, name, media_type, Some(content)))
-                    if org_id == actor.org_id && actor.can_view(&project_id) =>
+                Some((org_id, project_id, task_id, name, media_type, Some(content)))
+                    if org_id == actor.org_id && actor.can_view_task(&project_id, &task_id) =>
                 {
                     Ok((name, media_type, content))
                 }
@@ -415,7 +415,7 @@ pub async fn add_dependency(
                 "depends_on": other.key(),
                 "reason": reason,
             })))?;
-            refresh_claimable(conn, &actor.id, std::slice::from_ref(&task.id))?;
+            refresh_claimable(conn, &actor, std::slice::from_ref(&task.id))?;
             Ok(StatusCode::CREATED)
         })
         .await
@@ -443,7 +443,7 @@ pub async fn remove_dependency(
                 "key": task.key(),
                 "depends_on": other.key(),
             })))?;
-            refresh_claimable(conn, &actor.id, std::slice::from_ref(&task.id))?;
+            refresh_claimable(conn, &actor, std::slice::from_ref(&task.id))?;
             Ok(StatusCode::NO_CONTENT)
         })
         .await

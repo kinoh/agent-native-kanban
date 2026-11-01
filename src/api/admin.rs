@@ -7,6 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::delegation::{scope_json, token_is_within};
 use super::identity::replace_password;
 use super::{ApiJson, AppState, explicit, required_text};
 use crate::auth::{Actor, hash_password, hash_secret, new_secret, validate_password};
@@ -24,12 +25,13 @@ pub struct SignupGrant {
     pub permission: Permission,
 }
 
-fn admin_event<'a>(actor: &'a Actor, kind: &'static str, data: Value) -> EventInput<'a> {
+pub fn admin_event<'a>(actor: &'a Actor, kind: &'static str, data: Value) -> EventInput<'a> {
     EventInput {
         org_id: &actor.org_id,
         project_id: None,
         task_id: None,
         actor_id: Some(&actor.id),
+        delegated_token_id: actor.delegated_token_id(),
         category: "admin",
         kind,
         data,
@@ -296,7 +298,7 @@ pub async fn set_password(
         .await
 }
 
-fn project_in_org(conn: &Connection, org_id: &str, project_id: &str) -> ApiResult<()> {
+pub fn project_in_org(conn: &Connection, org_id: &str, project_id: &str) -> ApiResult<()> {
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?1 AND org_id = ?2)",
         params![project_id, org_id],
@@ -372,7 +374,7 @@ pub async fn list_grants(
             for row in rows {
                 let (grant_id, project_id, permission, granted_by, created_at) = row?;
                 // 自分と組織管理者以外には、閲覧できるプロジェクトの権限だけ見せる。
-                let visible = actor.id == id
+                let visible = (actor.id == id && !actor.delegated)
                     || actor.is_org_admin()
                     || project_id.as_deref().is_some_and(|p| actor.can_view(p));
                 if visible {
@@ -448,7 +450,21 @@ pub async fn delete_grant(
         .await
 }
 
+/// 認証情報の管理は、委譲の範囲を抜ける経路になるので委譲トークンには許さない。
+pub fn reject_delegated(actor: &Actor) -> ApiResult<()> {
+    if actor.delegated {
+        actor.log_delegated_denial("credential management");
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "delegated_token_restricted",
+            "delegated tokens cannot manage credentials",
+        ));
+    }
+    Ok(())
+}
+
 fn require_token_authority(actor: &Actor, principal_id: &str) -> ApiResult<()> {
+    reject_delegated(actor)?;
     if actor.is_org_admin() || (actor.id == principal_id && actor.kind == "human") {
         Ok(())
     } else {
@@ -467,10 +483,10 @@ pub async fn list_tokens(
         .read(move |conn| {
             status_of(conn, &actor.org_id, &id)?;
             let mut statement = conn.prepare(
-                "SELECT id, name, created_by, created_at, expires_at, revoked_at FROM api_tokens
-                 WHERE principal_id = ?1 ORDER BY created_at DESC",
+                "SELECT id, name, created_by, created_at, expires_at, revoked_at, parent_token_id
+                 FROM api_tokens WHERE principal_id = ?1 ORDER BY created_at DESC",
             )?;
-            let tokens = statement
+            let rows = statement
                 .query_map([&id], |row| {
                     Ok(json!({
                         "id": row.get::<_, String>(0)?,
@@ -479,9 +495,20 @@ pub async fn list_tokens(
                         "created_at": row.get::<_, String>(3)?,
                         "expires_at": row.get::<_, Option<String>>(4)?,
                         "revoked_at": row.get::<_, Option<String>>(5)?,
+                        "parent_token_id": row.get::<_, Option<String>>(6)?,
                     }))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
+            let mut tokens = Vec::new();
+            for mut token in rows {
+                if !token["parent_token_id"].is_null() {
+                    let id = token["id"].as_str().unwrap_or_default().to_string();
+                    let (scopes, tasks) = scope_json(conn, &id)?;
+                    token["scopes"] = scopes;
+                    token["tasks"] = tasks;
+                }
+                tokens.push(token);
+            }
             Ok(Json(json!({ "tokens": tokens })))
         })
         .await
@@ -551,7 +578,14 @@ pub async fn revoke_token(
                 )
                 .optional()?;
             let principal_id = principal_id.ok_or_else(|| ApiError::not_found("token"))?;
-            require_token_authority(&actor, &principal_id)?;
+            // トークンは、自分自身と自分から発行した委譲トークンを失効できる。
+            let issued_here = match &actor.token_id {
+                Some(token_id) => token_is_within(conn, token_id, &id)?,
+                None => false,
+            };
+            if !issued_here {
+                require_token_authority(&actor, &principal_id)?;
+            }
             conn.execute(
                 "UPDATE api_tokens SET revoked_at = COALESCE(revoked_at, ?1) WHERE id = ?2",
                 params![now(), id],
@@ -655,6 +689,7 @@ pub fn create_link(
         project_id: None,
         task_id: None,
         actor_id: created_by,
+        delegated_token_id: None,
         category: "admin",
         kind: "signup_link.created",
         data: json!({ "signup_link_id": id, "max_uses": max_uses, "expires_at": expires_at }),

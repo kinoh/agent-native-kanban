@@ -30,12 +30,14 @@ pub struct EventView {
     pub project_id: Option<String>,
     pub task_id: Option<String>,
     pub actor: Option<Value>,
+    /// 委譲トークンによる操作のとき、そのトークンの ID
+    pub delegated_token_id: Option<String>,
     pub data: Value,
     pub created_at: String,
 }
 
 const EVENT_SELECT: &str = "SELECT e.seq, e.type, e.category, e.project_id, e.task_id, e.data, e.created_at,
-    a.id, a.display_name, a.kind
+    a.id, a.display_name, a.kind, e.delegated_token_id
     FROM events e LEFT JOIN principals a ON a.id = e.actor_id";
 
 fn event_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventView> {
@@ -54,6 +56,7 @@ fn event_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventView> {
         project_id: row.get(3)?,
         task_id: row.get(4)?,
         actor: actor.transpose()?,
+        delegated_token_id: row.get(10)?,
         data: serde_json::from_str(&data)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
         created_at: row.get(6)?,
@@ -62,9 +65,10 @@ fn event_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventView> {
 
 /// プロジェクトに属するイベントは閲覧権限のある主体に、組織全体のものは組織管理者にだけ見せる。
 fn visible(actor: &Actor, event: &EventView) -> bool {
-    match &event.project_id {
-        Some(project_id) => actor.can_view(project_id),
-        None => actor.is_org_admin(),
+    match (&event.project_id, &event.task_id) {
+        (Some(project_id), Some(task_id)) => actor.can_view_task(project_id, task_id),
+        (Some(project_id), None) => actor.sees_whole_project(project_id),
+        (None, _) => actor.is_org_admin(),
     }
 }
 

@@ -9,7 +9,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::admin::{SignupGrant, insert_grant};
+use super::admin::{SignupGrant, insert_grant, reject_delegated};
 use super::{ApiJson, AppState, required_text};
 use crate::auth::{
     self, Actor, Credential, SESSION_COOKIE, SESSION_TTL_SECONDS, burn_password_check, hash_password,
@@ -241,6 +241,7 @@ pub async fn signup(
                 project_id: None,
                 task_id: None,
                 actor_id: Some(&id),
+                delegated_token_id: None,
                 category: "admin",
                 kind: "principal.signed_up",
                 data: json!({ "principal_id": id, "signup_link_id": link.id }),
@@ -282,6 +283,7 @@ pub async fn me(State(state): State<AppState>, actor: Actor) -> ApiResult<Json<V
                 "organization": { "id": actor.org_id, "name": org_name },
                 "is_org_admin": actor.is_org_admin(),
                 "grants": grants,
+                "delegated_token_id": actor.delegated_token_id(),
             })))
         })
         .await
@@ -299,6 +301,7 @@ pub async fn change_password(
     actor: Actor,
     ApiJson(request): ApiJson<ChangePasswordRequest>,
 ) -> ApiResult<StatusCode> {
+    reject_delegated(&actor)?;
     validate_password(&request.new_password)?;
     let id = actor.id.clone();
     let stored: Option<String> = state
@@ -343,6 +346,7 @@ pub async fn change_password(
                 project_id: None,
                 task_id: None,
                 actor_id: Some(&actor.id),
+                delegated_token_id: None,
                 category: "admin",
                 kind: "principal.password_changed",
                 data: json!({ "principal_id": actor.id }),

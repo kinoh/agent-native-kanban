@@ -227,6 +227,10 @@ pub fn resolve_task(conn: &Connection, actor: &Actor, reference: &str) -> ApiRes
     if task.org_id != actor.org_id || !actor.can_view(&task.project_id) {
         return Err(ApiError::not_found("task"));
     }
+    if !actor.can_view_task(&task.project_id, &task.id) {
+        actor.log_delegated_denial("task inside the delegation");
+        return Err(ApiError::not_found("task"));
+    }
     Ok(task)
 }
 
@@ -335,9 +339,13 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
     let result = task.availability();
     let permission = task.claim_permission()?;
     let has_claim_permission = actor.can(&task.project_id, permission);
-    let (visible, hidden): (Vec<_>, Vec<_>) =
-        task.blockers.iter().partition(|blocker| actor.can_view(&blocker.project_id));
-    let is_holder = task.occupant.as_ref().is_some_and(|holder| holder.id == actor.id);
+    let (visible, hidden): (Vec<_>, Vec<_>) = task
+        .blockers
+        .iter()
+        .partition(|blocker| actor.can_view_task(&blocker.project_id, &blocker.id));
+    // 委譲トークンは主体が同じでも、取得権限がなければ作業権を受け取れない。
+    let is_holder = task.occupant.as_ref().is_some_and(|holder| holder.id == actor.id)
+        && (!actor.delegated || has_claim_permission);
     Ok(TaskView {
         id: task.id.clone(),
         key: task.key(),
@@ -380,7 +388,7 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
 
 /// 記録済みの取得可能性と現在の判定を比べ、変化があれば変更イベントを出す。
 /// 変更した処理は、影響するタスクと依存元をここへ渡す。
-pub fn refresh_claimable(conn: &Connection, actor_id: &str, task_ids: &[String]) -> ApiResult<()> {
+pub fn refresh_claimable(conn: &Connection, actor: &Actor, task_ids: &[String]) -> ApiResult<()> {
     for task_id in task_ids {
         let task = load_task(conn, task_id)?;
         let claimable = task.availability().claimable;
@@ -395,7 +403,8 @@ pub fn refresh_claimable(conn: &Connection, actor_id: &str, task_ids: &[String])
             org_id: &task.org_id,
             project_id: Some(&task.project_id),
             task_id: Some(&task.id),
-            actor_id: Some(actor_id),
+            actor_id: Some(&actor.id),
+            delegated_token_id: actor.delegated_token_id(),
             category: "work",
             kind: if claimable { "work.available" } else { "work.unavailable" },
             data: json!({ "key": task.key(), "stage": task.stage.name }),

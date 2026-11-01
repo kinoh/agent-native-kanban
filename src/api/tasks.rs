@@ -35,6 +35,7 @@ pub fn task_event<'a>(
         project_id: Some(&task.project_id),
         task_id: Some(&task.id),
         actor_id: Some(&actor.id),
+        delegated_token_id: actor.delegated_token_id(),
         category,
         kind,
         data,
@@ -160,7 +161,7 @@ pub async fn list(
             }
             let mut views = Vec::new();
             for task in load_tasks(conn, &filter, &args, &order)? {
-                if !actor.can_view(&task.project_id) {
+                if !actor.can_view_task(&task.project_id, &task.id) {
                     continue;
                 }
                 let view = to_view(&task, &actor)?;
@@ -233,6 +234,15 @@ pub async fn create(
                 return Err(ApiError::not_found("project"));
             }
             actor.require(&request.project_id, Permission::Create)?;
+            // タスクを限定した委譲トークンは、範囲内のタスクの子だけを作れる。
+            if actor.task_scope.is_some() && request.parent.is_none() {
+                actor.log_delegated_denial("task inside the delegation");
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "outside_delegated_tasks",
+                    "this token can only create children of its delegated tasks",
+                ));
+            }
             if request.responsible_id.is_some() || request.assignee_id.is_some() {
                 actor.require(&request.project_id, Permission::Assign)?;
             }
@@ -302,7 +312,7 @@ pub async fn create(
                 "title": task.title,
                 "stage": task.stage.name,
             })))?;
-            refresh_claimable(conn, &actor.id, std::slice::from_ref(&id))?;
+            refresh_claimable(conn, &actor, std::slice::from_ref(&id))?;
             Ok((StatusCode::CREATED, Json(to_view(&load_task(conn, &id)?, &actor)?)))
         })
         .await
@@ -546,7 +556,7 @@ pub async fn move_stage(
                 "to": { "id": request.to_stage_id, "name": target },
                 "previous_work_state": task.work_state,
             })))?;
-            refresh_claimable(conn, &actor.id, &with_dependents(conn, &task.id)?)?;
+            refresh_claimable(conn, &actor, &with_dependents(conn, &task.id)?)?;
             Ok(Json(to_view(&load_task(conn, &task.id)?, &actor)?))
         })
         .await
@@ -636,7 +646,7 @@ fn related_views(
 ) -> ApiResult<Vec<TaskView>> {
     load_tasks(conn, filter, &[SqlValue::Text(task_id.to_string())], "t.number")?
         .iter()
-        .filter(|task| actor.can_view(&task.project_id))
+        .filter(|task| actor.can_view_task(&task.project_id, &task.id))
         .map(|task| to_view(task, actor))
         .collect()
 }
@@ -653,7 +663,7 @@ pub async fn context(
             let task = resolve_task(conn, &actor, &reference)?;
             let parent = match &task.parent_id {
                 Some(id) => Some(load_task(conn, id)?)
-                    .filter(|parent| actor.can_view(&parent.project_id))
+                    .filter(|parent| actor.can_view_task(&parent.project_id, &parent.id))
                     .map(|parent| to_view(&parent, &actor))
                     .transpose()?,
                 None => None,

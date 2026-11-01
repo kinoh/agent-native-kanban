@@ -11,6 +11,7 @@ use crate::error::{ApiError, ApiResult};
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_init.sql"),
     include_str!("../migrations/0002_project_relations.sql"),
+    include_str!("../migrations/0003_token_delegation.sql"),
 ];
 
 /// 単一コネクションを直列に使う。書き込みは `BEGIN IMMEDIATE` なので、
@@ -208,7 +209,10 @@ mod tests {
             assert_eq!(conn.total_changes(), before);
             conn.execute_batch(remove).unwrap();
             migrate(&mut conn).unwrap();
-            assert_eq!(conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0)).unwrap(), 2);
+            assert_eq!(
+                conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0)).unwrap(),
+                MIGRATIONS.len() as i64
+            );
         }
     }
 

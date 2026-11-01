@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod delegation;
 pub mod feed;
 pub mod identity;
 pub mod projects;
@@ -115,6 +116,7 @@ fn api_routes() -> Router<AppState> {
         .route("/me", get(identity::me))
         .route("/me/password", put(identity::change_password))
         .route("/me/inbox", get(collab::inbox))
+        .route("/me/delegations", get(delegation::list).post(delegation::create))
         .route("/principals", get(admin::list_principals).post(admin::create_principal))
         .route(
             "/principals/{id}",
