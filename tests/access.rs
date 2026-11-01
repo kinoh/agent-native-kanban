@@ -405,3 +405,25 @@ async fn event_stream_delivers_changes_and_closes_when_the_token_is_revoked() {
     }
     assert!(!leaked.contains("Secret after revoke"));
 }
+
+#[tokio::test]
+async fn project_keys_may_be_a_single_letter_and_invalid_keys_explain_the_rule() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let project = app.project(&admin, "F").await;
+    let task = app.task(&admin, &project, &project.implement, "X").await;
+    assert_eq!(task["key"], "F-1");
+    assert_eq!(app.get(&admin, "/tasks/F-1").await.status, StatusCode::OK);
+
+    for key in ["", "1A", "f", "ABCDEFGHIJK", "A-B"] {
+        let reply = app
+            .post(&admin, "/projects", json!({
+                "key": key,
+                "name": "x",
+                "stages": [{ "name": "s", "requires_work": true, "claim_permission": "claim", "is_final": false }],
+            }))
+            .await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{key}");
+        assert_eq!(reply.code(), "invalid_project_key", "{key}");
+    }
+}

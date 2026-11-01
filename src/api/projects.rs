@@ -174,11 +174,15 @@ pub async fn create(
     actor.require_org_admin()?;
     let name = required_text("name", &request.name, 100)?;
     let key = request.key.trim().to_string();
-    let valid_key = (2..=10).contains(&key.len())
+    let valid_key = (1..=10).contains(&key.len())
         && key.starts_with(|c: char| c.is_ascii_uppercase())
         && key.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
     if !valid_key {
-        return Err(ApiError::invalid("key must be 2-10 uppercase letters or digits"));
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_project_key",
+            "key must be 1-10 characters: an uppercase letter, then uppercase letters or digits",
+        ));
     }
     if request.stages.is_empty() {
         return Err(ApiError::invalid("a project needs at least one stage"));

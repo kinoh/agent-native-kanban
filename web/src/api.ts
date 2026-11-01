@@ -10,6 +10,8 @@ export class ApiFailure extends Error {
 
 /** サーバーのエラーコードごとの利用者向けの説明。未知のコードはサーバーの文面をそのまま出す。 */
 const ERROR_MESSAGES: Record<string, string> = {
+  invalid_project_key: "キーは英大文字で始まる1〜10文字の英大文字・数字にしてください",
+  duplicate_project_key: "このキーはすでに使われています",
   permission_denied: "この操作を行う権限がありません",
   task_occupied: "作業者が完了または解放するまで、この操作はできません",
   version_conflict: "他の人が先に変更しました。最新の内容を確認してください",

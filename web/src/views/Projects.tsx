@@ -4,6 +4,8 @@ import type { Session } from "../App";
 import { navigate } from "../router";
 import { ErrorNote, Modal } from "../ui";
 
+const KEY_RULE = "英大文字で始まる1〜10文字の英大文字・数字";
+
 const DEFAULT_STAGES = [
   { name: "バックログ", requires_work: false, claim_permission: "claim", is_final: false },
   { name: "実装", requires_work: true, claim_permission: "claim", is_final: false },
@@ -36,8 +38,17 @@ function CreateProject({ session, onClose }: { session: Session; onClose: () => 
           <input value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
         <label>
-          キー（英大文字と数字。タスク番号の接頭辞）
-          <input value={key} onChange={(e) => setKey(e.target.value.toUpperCase())} required pattern="[A-Z][A-Z0-9]{1,9}" />
+          キー（FOO-123 の FOO の部分。{KEY_RULE}）
+          <input
+            value={key}
+            onChange={(e) => {
+              e.target.setCustomValidity("");
+              setKey(e.target.value.toUpperCase());
+            }}
+            onInvalid={(e) => e.currentTarget.setCustomValidity(`キーは${KEY_RULE}にしてください`)}
+            required
+            pattern="[A-Z][A-Z0-9]{0,9}"
+          />
         </label>
         <p className="muted">段階は作成後にプロジェクト設定で変更できます。</p>
         <ErrorNote message={error} />
