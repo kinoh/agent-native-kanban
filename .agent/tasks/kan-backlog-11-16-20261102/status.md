@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-02 JST. Director: wK:pK. State: ALL REVIEWS PASSED, FINAL FIX ON KAN-14.
+Last updated: 2026-11-02 JST. Director: wK:pK. State: ALL REVIEWED AND VERIFIED, AWAITING USER DECISION ON MERGE.
 
 Director moved all six cards to 実装 and claimed/started them as the existing agent principal. Claim IDs are work references, not authentication tokens. Workers do not mutate the live board. Do not claim/start again.
 
@@ -33,4 +33,4 @@ KAN-15 was rejected by review-kan-15 (wX:p1) at be54113, with the result posted 
 Review claims: KAN-12 01a197f7-4f68-73ef-8ad7-73a1e6ab0faa, KAN-13 01a197f7-4f77-74d1-bafa-67708b29a888, KAN-15 01a197f7-4f89-766f-92e9-be4faa1d6848, KAN-16 01a197f7-4f96-71fd-8d12-e782d68bce19, KAN-11 01a197f7-d7f4-772d-bcf0-85ed1b1b8287, KAN-14 01a197f7-d814-7514-9acf-1230c3b9a779
 
 ## Remaining
-All six cards passed independent review. Trial merge of all branches is at ../integration-11-16 (detached, c13be06; test-only and Board.tsx conflicts resolved keeping both sides). cargo test 95 and web suites passed there, and ~/.local/state/agent-native-kanban/integration-11-16/e2e.py passed on a real server, including the dependency-to-SSE path. kan-11-14 is fixing the 作成元 label found in the real screen. Then re-merge, rerun verify.sh and e2e.py, and ask the user about merging into main, moving to 完了 and deployment.
+All six cards passed independent review. Trial merge of all branches is at ../integration-11-16 (detached, 1699a2b; Board.tsx and test conflicts resolved keeping both sides). cargo test and web suites passed there, and ~/.local/state/agent-native-kanban/integration-11-16/e2e.py passed on a real server, including the dependency-to-SSE path. The KAN-14 label fix (8d6861f) was found by the director after review and has not had independent review. Next: ask the user about merging into main (fast-forward to 1699a2b), moving to 完了 and deployment. Deploying needs a build and restart together, with a DB backup first; no migration in these cards.
