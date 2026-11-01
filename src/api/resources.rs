@@ -120,7 +120,10 @@ fn require_acquire(actor: &Actor, resource: &ResourceRow) -> ApiResult<()> {
     match resource.project_id.as_deref() {
         Some(project_id) => actor.require(project_id, Permission::Claim),
         None if can_acquire_org_resource(actor) => Ok(()),
-        None => Err(ApiError::forbidden("claim")),
+        None => {
+            actor.log_delegated_denial("claim");
+            Err(ApiError::forbidden("claim"))
+        }
     }
 }
 

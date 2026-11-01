@@ -70,3 +70,10 @@ No server has been started and the worktree was clean on entry. Next: add the sc
 - Final implementation commit: `0fafda4 共有リソースを安全に確保できるようにする`.
 - Worktree was clean immediately after that commit. No server or port remains in use.
 - Next: send the director report through the assigned herdr-watch reply path.
+
+### Review follow-up — 2026-11-01T21:30:00+09:00
+
+- Director requested four corrections: restore the integration test's ephemeral OS port; place the Resources link after the project group; move shared-resources documentation to `6.1` without renumbering existing sections; and log delegated organization-resource claim denial.
+- Applied all four. The integration test's dynamic port is explicitly approved by the director and is excluded from the work-record port allocation.
+- Reverification passed: `cargo test` (75 tests), `npm --prefix web run build`, `python3 web/tests/behavior.py`, `python3 web/tests/settings_integration.py`, and `git diff --check`.
+- Next: create an additional follow-up commit (no amend) and report.

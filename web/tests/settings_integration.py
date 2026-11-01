@@ -3,7 +3,7 @@
 It never prints credentials, cookies, signup links, or database contents.
 Run after `npm run build` and `cargo build`: python3 web/tests/settings_integration.py
 """
-import os, subprocess, tempfile, time, urllib.request
+import os, socket, subprocess, tempfile, time, urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -12,7 +12,7 @@ STATE=Path.home()/'.local/state/agent-native-kanban/settings-integration'
 STATE.mkdir(parents=True,exist_ok=True)
 os.environ['TMPDIR']=str(STATE); tempfile.tempdir=str(STATE)
 run=Path(tempfile.mkdtemp(prefix='run-',dir=STATE)); db=run/'test.sqlite'
-port=18813
+sock=socket.socket(); sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]; sock.close()
 base=f'http://127.0.0.1:{port}'; binary=ROOT/'target/debug/agent-native-kanban'
 bootstrap=subprocess.run([str(binary),'bootstrap','--db',str(db),'--public-url',base,'--org','Integration','--expires-hours','1'],capture_output=True,text=True,check=True)
 admin_signup=bootstrap.stdout.strip().replace(base,'')

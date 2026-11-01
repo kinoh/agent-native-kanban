@@ -174,12 +174,12 @@ function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloa
         </button>
         <NavLink to="/inbox" label="受信箱" current={path} badge={inbox} />
         <NavLink to="/projects" label="プロジェクト" current={path === "/" ? "/projects" : path} />
-        <NavLink to="/resources" label="リソース" current={path} />
         <div className="nav-group">
           {projects.map((project) => (
             <NavLink key={project.id} to={`/projects/${project.key}/board`} label={project.name} current={path} />
           ))}
         </div>
+        <NavLink to="/resources" label="リソース" current={path} />
         {me.is_org_admin && <NavLink to="/admin" label="組織の管理" current={path} />}
         <div className="spacer" />
         <div className="me">
