@@ -22,7 +22,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.path='/index.html'
         super().do_GET()
     def log_message(self,*args): pass
-server=ThreadingHTTPServer(('127.0.0.1',18813),Handler)
+server=ThreadingHTTPServer(('127.0.0.1',18821),Handler)
 threading.Thread(target=server.serve_forever,daemon=True).start()
 base=f'http://127.0.0.1:{server.server_port}'
 stage={'id':'stage-1','name':'Implement','position':0,'requires_work':True,'claim_permission':'claim','is_final':False}
@@ -39,8 +39,11 @@ def discard_task(i):
         return {**task(2),'work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'needs it','discarded':True}]}}
     return task(i)
 state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False}
-agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
-human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
+agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_by':'human-1','created_at':'2026-11-01T00:00:00.000Z','email':None}
+human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_by':None,'created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
+agent_child={'id':'agent-2','kind':'agent','display_name':'Builder','status':'active','description':'','created_by':'agent-1','created_at':'2026-11-01T00:00:00.000Z','email':None}
+missing_creator={'id':'agent-3','kind':'agent','display_name':'Former creator','status':'active','description':'','created_by':'deleted-principal','created_at':'2026-11-01T00:00:00.000Z','email':None}
+independent={'id':'human-2','kind':'human','display_name':'Independent','status':'active','description':'','created_by':None,'created_at':'2026-11-01T00:00:00.000Z','email':'independent@example.test'}
 def principal_work():
     agent_work=[
         {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'claimed','acquired_at':'2026-11-01T00:00:00.000Z'},
@@ -51,8 +54,11 @@ def principal_work():
             {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'paused','acquired_at':'2026-11-01T00:00:00.000Z'},
         ]
     return {'principals':[
-        {**human,'work':[]},
+        {**agent_child,'work':[]},
+        {**independent,'work':[]},
         {**agent,'work':agent_work},
+        {**missing_creator,'work':[]},
+        {**human,'work':[]},
     ]}
 FUTURE='2099-01-01T00:00:00.000Z'
 def token(id,name,**fields):
@@ -168,7 +174,7 @@ def route(r):
         body={'projects':[{**project,'stages':state['stages'] or ([stage,new_stage] if state['moved'] else [stage])}]}
     elif path=='/me/inbox': body={'requests':[]}
     elif path=='/principals/work': body=principal_work()
-    elif path=='/principals': body={'principals':[human,agent]}
+    elif path=='/principals': body={'principals':[human,agent,agent_child,missing_creator,independent]}
     elif path=='/signup-links': body={'signup_links':[]}
     elif path=='/principals/agent-1/grants': body={'grants':[]}
     elif path=='/principals/agent-1/tokens': body={'tokens':tokens}
@@ -272,6 +278,18 @@ try:
         page.goto(base+'/admin')
         page.get_by_text('作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。',exact=True).wait_for()
         agent_row=page.locator('tr').filter(has_text='Orchestrator')
+        principal_rows=page.locator('table.settings-table').nth(1).locator('tbody tr')
+        assert principal_rows.count()==5
+        assert principal_rows.evaluate_all('rows => rows.map(row => row.dataset.principal)')==['human-2','agent-3','human-1','agent-1','agent-2']
+        indents=principal_rows.evaluate_all('rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector(".principal-tree")).paddingInlineStart]))')
+        assert indents=={'human-2':'0px','agent-3':'0px','human-1':'0px','agent-1':'18px','agent-2':'36px'}
+        assert page.get_by_label('作成元 Auditor').count()==1
+        assert page.get_by_label('作成元 Orchestrator').count()==1
+        assert '委譲' not in ''.join(principal_rows.all_inner_texts())
+        alignment=agent_row.evaluate('row => { const tree=row.querySelector(".principal-tree").getBoundingClientRect(); const cells=[...row.querySelectorAll("td")].slice(1).map(cell => cell.getBoundingClientRect()); return { treeCenter: tree.y + tree.height / 2, rowHeight: row.getBoundingClientRect().height, cellCenters: cells.map(cell => cell.y + cell.height / 2) }; }')
+        assert alignment['rowHeight'] > 40
+        assert all(abs(center-alignment['treeCenter']) < .5 for center in alignment['cellCenters'])
+        results['principal_creation_tree']={'nested':['Auditor','Orchestrator','Builder'],'roots':['Former creator','Independent'],'count':principal_rows.count(),'tall_row_aligned':True}
         assert agent_row.get_by_role('link',name='DEV-1 Task 1',exact=True).count()==1
         assert agent_row.get_by_role('link',name='DEV-2 Task 2',exact=True).count()==1
         assert '取得済み' in agent_row.inner_text()
@@ -285,7 +303,7 @@ try:
         assert agent_row.get_by_role('link',name='DEV-2 Task 2',exact=True).count()==0
         results['principal_work']={'multiple_claims':2,'activities':['claimed','working','paused'],'live_reload':'/principals/work' in requests,'stale_work_removed':True}
         assert results['principal_work']['live_reload']
-        page.get_by_role('button',name='権限',exact=True).last.click()
+        agent_row.get_by_role('button',name='権限',exact=True).click()
         rows=page.get_by_role('list',name='発行済みのトークン').get_by_role('listitem')
         rows.first.wait_for()
         def row(name): return rows.filter(has=page.get_by_text(name,exact=True))
@@ -364,7 +382,7 @@ try:
             page.get_by_role('button',name='組織名を保存',exact=True).click()
         page.get_by_text('保存しました',exact=True).first.wait_for()
         assert page.locator('.org').inner_text()=='Renamed Organization'
-        agent_rename=page.get_by_role('button',name='表示名を変更',exact=True).last
+        agent_rename=page.locator('[data-principal="agent-1"]').get_by_role('button',name='表示名を変更',exact=True)
         agent_rename.click()
         page.get_by_label('表示名',exact=True).fill('Canceled Agent')
         page.get_by_role('button',name='キャンセル',exact=True).click()
@@ -374,7 +392,7 @@ try:
         with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/principals/agent-1')):
             page.get_by_role('button',name='表示名を保存',exact=True).click()
         page.get_by_text('Renamed Agent').wait_for()
-        page.get_by_role('button',name='表示名を変更',exact=True).first.click()
+        page.locator('[data-principal="human-1"]').get_by_role('button',name='表示名を変更',exact=True).click()
         page.get_by_label('表示名',exact=True).fill('Lead Auditor')
         with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/principals/human-1')):
             page.get_by_role('button',name='表示名を保存',exact=True).click()
