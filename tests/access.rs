@@ -381,18 +381,24 @@ async fn guide_project_setup_sequence_creates_detailed_related_work() {
         assert_eq!(task.body["priority"], priority);
     }
 
-    let dependency = app
-        .post(
-            &admin,
-            "/tasks/SCORE-2/dependencies",
+    let Auth::Cookie(cookie) = &admin.auth else { unreachable!() };
+    let dependency = Request::builder()
+        .method("POST")
+        .uri("/api/v1/tasks/SCORE-2/dependencies")
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
             json!({
                 "depends_on": "SCORE-1",
                 "reason": "Import needs the reviewed input definition.",
-            }),
-        )
-        .await;
-    assert_eq!(dependency.status, StatusCode::CREATED, "{:?}", dependency.body);
-    assert_eq!(dependency.body, Value::Null);
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let dependency = app.router.clone().oneshot(dependency).await.unwrap();
+    assert_eq!(dependency.status(), StatusCode::CREATED);
+    let dependency_body = dependency.into_body().collect().await.unwrap().to_bytes();
+    assert!(dependency_body.is_empty(), "dependency response body: {dependency_body:?}");
 
     let context = app.get(&admin, "/tasks/SCORE-2/context").await;
     assert_eq!(context.status, StatusCode::OK, "{:?}", context.body);
