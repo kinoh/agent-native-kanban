@@ -7,7 +7,79 @@ use std::collections::HashSet;
 use axum::http::StatusCode;
 use common::*;
 use agent_native_kanban::db::after_seconds;
-use serde_json::json;
+use serde_json::{Value, json};
+
+fn assert_occupancy_reason(view: &Value, code: &str, message: &str, holder: bool) {
+    let work = &view["work"];
+    assert!(!work["claimable"].as_bool().unwrap());
+    assert!(!work["can_claim"].as_bool().unwrap());
+    assert_eq!(work["reasons"][0]["code"], code);
+    assert_eq!(work["reasons"][0]["message"], message);
+    assert_eq!(work["claim_id"].is_string(), holder);
+}
+
+async fn assert_occupancy_across_views(
+    app: &App, project: &Project, task: &Value, holder: &Client, other: &Client,
+    code: &str, holder_message: &str, other_message: &str,
+) {
+    let key = task["key"].as_str().unwrap();
+    for (client, message, is_holder) in [(holder, holder_message, true), (other, other_message, false)] {
+        let task_view = app.get(client, &format!("/tasks/{key}")).await;
+        assert_eq!(task_view.status, StatusCode::OK, "{:?}", task_view.body);
+        assert_occupancy_reason(&task_view.body, code, message, is_holder);
+
+        let context = app.get(client, &format!("/tasks/{key}/context")).await;
+        assert_eq!(context.status, StatusCode::OK, "{:?}", context.body);
+        assert_occupancy_reason(&context.body["task"], code, message, is_holder);
+
+        let listed = app.get(client, &format!("/tasks?project={}", project.id)).await;
+        assert_eq!(listed.status, StatusCode::OK, "{:?}", listed.body);
+        let listed_task = listed.body["tasks"].as_array().unwrap().iter()
+            .find(|view| view["key"] == key)
+            .expect("the occupied task remains visible in task lists");
+        assert_occupancy_reason(listed_task, code, message, is_holder);
+    }
+}
+
+#[tokio::test]
+async fn occupancy_reason_identifies_the_holder_across_work_lifecycle_and_views() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let project = app.project(&admin, "ACME").await;
+    let a = app.agent(&admin, "A", worker_grants(&project)).await;
+    let b = app.agent(&admin, "B", worker_grants(&project)).await;
+    let task = app.task(&admin, &project, &project.implement, "X").await;
+    let key = task["key"].as_str().unwrap();
+
+    let claim_id = app.claim(&a, &task).await;
+    assert_occupancy_across_views(&app, &project, &task, &a, &b, "occupied_not_started", "you already hold this work", "another principal holds this work").await;
+    let reclaim = app.post(&a, &format!("/tasks/{key}/work/claim"), json!({})).await;
+    assert_eq!(reclaim.status, StatusCode::CONFLICT);
+    assert_eq!(reclaim.body["error"]["details"]["reasons"][0]["message"], "you already hold this work");
+
+    assert_eq!(app.post(&a, &format!("/tasks/{key}/work/start"), json!({ "claim_id": claim_id })).await.status, StatusCode::OK);
+    assert_occupancy_across_views(&app, &project, &task, &a, &b, "occupied_working", "you are working on this", "another principal is working on this").await;
+
+    assert_eq!(app.post(&a, &format!("/tasks/{key}/work/pause"), json!({ "claim_id": claim_id })).await.status, StatusCode::OK);
+    assert_occupancy_across_views(&app, &project, &task, &a, &b, "occupied_paused", "you have paused this work", "the holder has paused this work").await;
+
+    assert_eq!(app.post(&a, &format!("/tasks/{key}/work/resume"), json!({ "claim_id": claim_id })).await.status, StatusCode::OK);
+    assert_occupancy_across_views(&app, &project, &task, &a, &b, "occupied_working", "you are working on this", "another principal is working on this").await;
+
+    let transferred = app.post(&a, &format!("/tasks/{key}/work/transfer"), json!({
+        "claim_id": claim_id, "to": b.id, "note": "B が続ける",
+    })).await;
+    assert_eq!(transferred.status, StatusCode::OK, "{:?}", transferred.body);
+    assert_occupancy_across_views(&app, &project, &task, &b, &a, "occupied_not_started", "you already hold this work", "another principal holds this work").await;
+
+    let delegated = app.post(&b, "/me/delegations", json!({
+        "name": "continue work", "expires_at": after_seconds(3600),
+        "scopes": [{ "project_id": project.id, "permission": "claim" }], "tasks": [key],
+    })).await;
+    assert_eq!(delegated.status, StatusCode::CREATED, "{:?}", delegated.body);
+    let delegated_b = Client { id: b.id.clone(), auth: Auth::Bearer(delegated.body["token"].as_str().unwrap().to_string()) };
+    assert_occupancy_across_views(&app, &project, &task, &delegated_b, &a, "occupied_not_started", "you already hold this work", "another principal holds this work").await;
+}
 
 #[tokio::test]
 async fn concurrent_claims_produce_exactly_one_holder() {

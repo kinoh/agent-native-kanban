@@ -3,8 +3,60 @@ import { api } from "../api";
 import type { Session } from "../App";
 import { navigate } from "../router";
 import type { Project, Task } from "../types";
-import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
+import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, formatTime, isTyping } from "../ui";
 import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
+
+function CardBlockers({ task }: { task: Task }) {
+  if (task.work.readiness !== "waiting" || task.work.blockers.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="card-blockers" aria-label="依存先">
+      {task.work.blockers.map((blocker) => (
+        <li key={blocker.id} className="card-blocker">
+          <a
+            href={`/tasks/${blocker.key}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              navigate(`/tasks/${blocker.key}`);
+            }}
+          >
+            {blocker.key}
+          </a>
+          <span>{blocker.reason}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function LatestReview({ task }: { task: Task }) {
+  const review = task.latest_review_result;
+  return (
+    <div className="card-review">
+      {review ? (
+        <>
+          <span className="card-review-kind">レビュー結果</span>
+          <p>{review.body}</p>
+          <span className="muted">{review.author.display_name} · {formatTime(review.created_at)}</span>
+        </>
+      ) : (
+        <span className="muted">レビュー未実施</span>
+      )}
+      <a
+        href={`/tasks/${task.key}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          navigate(`/tasks/${task.key}`);
+        }}
+      >
+        詳細
+      </a>
+    </div>
+  );
+}
 
 function Card({
   task,
@@ -51,6 +103,8 @@ function Card({
           </span>
         )}
       </div>
+      <CardBlockers task={task} />
+      <LatestReview task={task} />
     </article>
   );
 }
@@ -87,7 +141,8 @@ export function BoardView({ project, session }: { project: Project; session: Ses
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey || creating || moving) {
+      const focusedControl = event.target instanceof HTMLElement ? event.target.closest("a, button") : null;
+      if (isTyping(event.target) || focusedControl || event.metaKey || event.ctrlKey || event.altKey || creating || moving) {
         return;
       }
       const column = columns.findIndex((item) => item.tasks.some((task) => task.key === selected));

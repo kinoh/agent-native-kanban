@@ -148,7 +148,14 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .card-top .avatar { margin-left: auto; }
 .card-title { display: block; margin-bottom: 7px; }
 .card-work { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 11px; }
+.card-review { display: grid; gap: 3px; margin-top: 7px; font-size: 11px; }
+.card-review p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-review-kind { color: var(--muted); font-size: 10px; }
 .occupant { display: inline-flex; gap: 4px; align-items: center; color: var(--nav-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-blockers { list-style: none; margin: 6px 0 0; padding: 0; }
+.card-blocker { display: flex; align-items: baseline; gap: 6px; color: var(--amber); font-size: 11px; overflow-wrap: anywhere; }
+.card-blocker a { color: var(--text); flex: none; }
+.card-blocker a:hover { color: var(--link-hover); text-decoration: underline; }
 
 .avatar { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--avatar); color: var(--avatar-text); flex: none; font-weight: 600; }
 .avatar.agent { border-radius: 5px; background: var(--agent-avatar); }
@@ -171,7 +178,10 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 
 .task-table, .settings-table { width: 100%; border-collapse: collapse; }
 .task-table th, .settings-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-.task-table td, .settings-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-2); }
+.task-table td, .settings-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-2); vertical-align: middle; }
+.principal-cell { display: table-cell; }
+.principal-tree { min-width: max-content; }
+.principal-creator { color: var(--muted); font-size: 10px; }
 .principal-work { list-style: none; margin: 0; padding: 0; }
 .principal-work li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
 .task-table tbody tr { cursor: pointer; }

@@ -273,6 +273,152 @@ async fn guide_happy_path_is_executable_with_isolated_data() {
 }
 
 #[tokio::test]
+async fn guide_project_setup_sequence_creates_detailed_related_work() {
+    let app = App::new();
+    let admin = app.organization("Guide setup Org", "guide-setup-admin@test").await;
+
+    // This is the project/stages, detailed parent-child tasks, and dependency sequence
+    // documented in GET /guide. It uses only values that the guide publishes.
+    let project = app
+        .post(
+            &admin,
+            "/projects",
+            json!({
+                "key": "SCORE",
+                "name": "Score Pilot",
+                "description": "Evaluate scoring changes with reproducible evidence.",
+                "stages": [
+                    { "name": "Backlog", "requires_work": false, "claim_permission": "claim", "is_final": false },
+                    { "name": "Build", "requires_work": true, "claim_permission": "claim", "is_final": false },
+                    { "name": "Done", "requires_work": false, "claim_permission": "claim", "is_final": true },
+                ],
+            }),
+        )
+        .await;
+    assert_eq!(project.status, StatusCode::CREATED, "{:?}", project.body);
+    assert!(project.body["id"].is_string());
+    assert_eq!(project.body["stages"].as_array().unwrap().len(), 3);
+    let project_id = project.body["id"].as_str().unwrap();
+    let build_stage = project.body["stages"][1]["id"].as_str().unwrap();
+
+    let added_stage = app
+        .post(
+            &admin,
+            &format!("/projects/{project_id}/stages"),
+            json!({
+                "name": "Review", "requires_work": true, "claim_permission": "review", "is_final": false,
+            }),
+        )
+        .await;
+    assert_eq!(added_stage.status, StatusCode::CREATED, "{:?}", added_stage.body);
+    assert_eq!(added_stage.body["stages"].as_array().unwrap().len(), 4);
+
+    let approving_stage = app
+        .post(
+            &admin,
+            &format!("/projects/{project_id}/stages"),
+            json!({
+                "name": "Approval", "requires_work": true, "claim_permission": "approve", "is_final": false,
+            }),
+        )
+        .await;
+    assert_eq!(approving_stage.status, StatusCode::CREATED, "{:?}", approving_stage.body);
+    assert_eq!(approving_stage.body["stages"].as_array().unwrap().len(), 5);
+
+    let parent = app
+        .post(
+            &admin,
+            "/tasks",
+            json!({
+                "project_id": project_id,
+                "stage_id": build_stage,
+                "title": "Define scoring inputs",
+                "purpose": "Make the scoring inputs reviewable.",
+                "acceptance_criteria": "Inputs and their source are recorded.",
+                "priority": "medium",
+            }),
+        )
+        .await;
+    assert_eq!(parent.status, StatusCode::CREATED, "{:?}", parent.body);
+    assert_eq!(parent.body["key"], "SCORE-1");
+    assert_eq!(parent.body["priority"], "medium");
+    assert_eq!(parent.body["purpose"], "Make the scoring inputs reviewable.");
+    assert_eq!(parent.body["acceptance_criteria"], "Inputs and their source are recorded.");
+
+    let child = app
+        .post(
+            &admin,
+            "/tasks",
+            json!({
+                "project_id": project_id,
+                "stage_id": build_stage,
+                "title": "Implement score import",
+                "purpose": "Load the reviewed scoring inputs.",
+                "acceptance_criteria": "A supplied input produces the recorded score.",
+                "priority": "high",
+                "parent": "SCORE-1",
+            }),
+        )
+        .await;
+    assert_eq!(child.status, StatusCode::CREATED, "{:?}", child.body);
+    assert_eq!(child.body["key"], "SCORE-2");
+    assert_eq!(child.body["parent_id"], parent.body["id"]);
+
+    for priority in ["urgent", "low", "none"] {
+        let task = app
+            .post(
+                &admin,
+                "/tasks",
+                json!({
+                    "project_id": project_id,
+                    "stage_id": build_stage,
+                    "title": format!("{priority} priority task"),
+                    "priority": priority,
+                }),
+            )
+            .await;
+        assert_eq!(task.status, StatusCode::CREATED, "{:?}", task.body);
+        assert_eq!(task.body["priority"], priority);
+    }
+
+    let Auth::Cookie(cookie) = &admin.auth else { unreachable!() };
+    let dependency = Request::builder()
+        .method("POST")
+        .uri("/api/v1/tasks/SCORE-2/dependencies")
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "depends_on": "SCORE-1",
+                "reason": "Import needs the reviewed input definition.",
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let dependency = app.router.clone().oneshot(dependency).await.unwrap();
+    assert_eq!(dependency.status(), StatusCode::CREATED);
+    let dependency_body = dependency.into_body().collect().await.unwrap().to_bytes();
+    assert!(dependency_body.is_empty(), "dependency response body: {dependency_body:?}");
+
+    let context = app.get(&admin, "/tasks/SCORE-2/context").await;
+    assert_eq!(context.status, StatusCode::OK, "{:?}", context.body);
+    assert_eq!(context.body["dependencies"][0]["task"]["key"], "SCORE-1");
+
+    let guide = app
+        .router
+        .clone()
+        .oneshot(Request::builder().uri("/api/v1/guide").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let guide = String::from_utf8(guide.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    for value in ["claim", "review", "approve", "urgent", "high", "medium", "low", "none"] {
+        assert!(guide.contains(value), "guide must document {value}");
+    }
+    assert!(guide.contains("201 Created"));
+    assert!(guide.contains("no response body"));
+}
+
+#[tokio::test]
 async fn organization_administrators_rename_only_their_organization_and_the_change_is_audited() {
     let app = App::new();
     let admin = app.organization("Acme", "admin@acme.test").await;

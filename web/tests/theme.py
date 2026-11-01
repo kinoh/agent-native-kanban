@@ -32,13 +32,17 @@ class Handler(SimpleHTTPRequestHandler):
 stage = {"id": "stage-1", "name": "実装", "position": 0, "requires_work": True, "claim_permission": "claim", "is_final": False}
 project = {"id": "project-1", "key": "THEME", "name": "テーマ確認", "description": "", "stages": [stage], "transition_rules": []}
 me = {"id": "human-1", "kind": "human", "display_name": "Theme User", "email": "theme@example.test", "organization": {"id": "org-1", "name": "Theme Org"}, "is_org_admin": True, "grants": [{"project_id": None, "permission": "admin"}]}
-human = {"id": "human-1", "kind": "human", "display_name": "Theme User", "status": "active", "description": "", "created_at": "2026-11-01T00:00:00.000Z", "email": "theme@example.test"}
-agent = {"id": "agent-1", "kind": "agent", "display_name": "Theme Agent", "status": "active", "description": "", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+human = {"id": "human-1", "kind": "human", "display_name": "Theme User", "status": "active", "description": "", "created_by": None, "created_at": "2026-11-01T00:00:00.000Z", "email": "theme@example.test"}
+agent = {"id": "agent-1", "kind": "agent", "display_name": "Theme Agent", "status": "active", "description": "", "created_by": "human-1", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+agent_child = {"id": "agent-2", "kind": "agent", "display_name": "Theme Builder", "status": "active", "description": "", "created_by": "agent-1", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+missing_creator = {"id": "agent-3", "kind": "agent", "display_name": "Theme Former", "status": "active", "description": "", "created_by": "deleted-principal", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+independent = {"id": "human-2", "kind": "human", "display_name": "Theme Independent", "status": "active", "description": "", "created_by": None, "created_at": "2026-11-01T00:00:00.000Z", "email": "independent@example.test"}
 
 
 def task():
-    work = {"readiness": "ready", "claimable": True, "can_claim": True, "claim_permission": "claim", "has_claim_permission": True, "reasons": [], "occupant": None, "activity": None, "is_working": False, "acquired_at": None, "claim_id": None, "hold_reason": None, "blockers": [], "hidden_blockers": 0}
-    return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "responsible": None, "assignee": None, "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work}
+    work = {"readiness": "waiting", "claimable": False, "can_claim": False, "claim_permission": "claim", "has_claim_permission": True, "reasons": [{"code": "blocked_by_dependencies", "message": "dependent tasks are not finished"}], "occupant": None, "activity": None, "is_working": False, "acquired_at": None, "claim_id": None, "hold_reason": None, "blockers": [{"id": "task-dependency", "key": "THEME-2", "reason": "レビュー待ち", "discarded": False}], "hidden_blockers": 1}
+    review = None if state.get("review_mode") == "none" else {"body": "自由形式のレビュー本文", "author": agent, "created_at": "2026-11-01T00:00:00.000Z"}
+    return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "responsible": None, "assignee": None, "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work, "latest_review_result": review}
 
 
 def api_route(state):
@@ -65,10 +69,10 @@ def api_route(state):
                 return
             body = {"tasks": [task()], "next_cursor": None}
         elif path == "/tasks/THEME-1/context": body = {"task": task(), "parent": None, "children": [], "dependencies": [], "dependents": [], "links": [], "comments": [], "artifacts": [], "history": []}
-        elif path == "/principals": body = {"principals": [human, agent]}
+        elif path == "/principals": body = {"principals": [human, agent, agent_child, missing_creator, independent]}
         elif path == "/principals/work":
             work = {"key": "THEME-1", "title": "配色を確認する", "project": {"id": project["id"], "key": project["key"], "name": project["name"]}, "activity": "working", "acquired_at": "2026-11-01T00:00:00.000Z"}
-            body = {"principals": [{**human, "work": []}, {**agent, "work": [work]}]}
+            body = {"principals": [{**agent_child, "work": []}, {**independent, "work": []}, {**agent, "work": [work, {**work, "key": "THEME-2", "title": "作成関係を確認する"}]}, {**missing_creator, "work": []}, {**human, "work": []}]}
         elif path == "/resources":
             hold = {"id": "hold-1", "reason": "受け入れテストを実行する", "acquired_at": "2026-11-01T00:00:00.000Z", "holder": {"id": agent["id"], "kind": agent["kind"], "display_name": agent["display_name"], "status": agent["status"]}}
             body = {"resources": [{"id": "resource-1", "org_id": "org-1", "project_id": None, "name": "テスト環境", "description": "統合テスト用の環境", "capacity": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "holds": [hold]}]}
@@ -96,7 +100,7 @@ def contrast(foreground, background):
     return (max(first, second) + 0.05) / (min(first, second) + 0.05)
 
 
-CONTENT = "main h1, main h2, main h3, main p, main li, main th, main td, main label, main .card-title, main .task-link, main [role=alert], main input, main select, main textarea, main button:not(.primary):not(.link):not(:disabled), .center-card h1, .center-card p, .center-card label, .center-card input, .center-card [role=alert], .modal h2, .modal p, .modal li, .modal label, .modal input, .modal select, .modal textarea, .modal button:not(.primary):not(.link):not(:disabled), .sidebar .org, .sidebar .nav-link, .sidebar .me span, .theme-toggle button"
+CONTENT = "main h1, main h2, main h3, main p, main li, main th, main td, main label, main .card-title, main .card-blocker, main .task-link, main [role=alert], main input, main select, main textarea, main button:not(.primary):not(.link):not(:disabled), .center-card h1, .center-card p, .center-card label, .center-card input, .center-card [role=alert], .modal h2, .modal p, .modal li, .modal label, .modal input, .modal select, .modal textarea, .modal button:not(.primary):not(.link):not(:disabled), .sidebar .org, .sidebar .nav-link, .sidebar .me span, .theme-toggle button"
 
 
 def assert_readable(page, screen):
@@ -112,6 +116,28 @@ def verify_page(page, path, ready, theme, screenshot):
     assert page.locator("html").get_attribute("data-theme") == theme
     assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == theme
     assert_readable(page, screenshot)
+    if path == "/admin":
+        rows = page.locator("table.settings-table").nth(1).locator("tbody tr")
+        assert rows.count() == 5
+        assert rows.evaluate_all("rows => rows.map(row => row.dataset.principal)") == ["human-2", "agent-3", "human-1", "agent-1", "agent-2"]
+        indents = rows.evaluate_all("rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector('.principal-tree')).paddingInlineStart]))")
+        assert indents == {"human-2": "0px", "agent-3": "0px", "human-1": "0px", "agent-1": "18px", "agent-2": "36px"}
+        assert rows.nth(3).locator(".principal-name").inner_text() == "Theme Agent"
+        assert rows.nth(3).locator(".principal-creator").inner_text() == "作成元 Theme User"
+        assert rows.nth(4).locator(".principal-name").inner_text() == "Theme Builder"
+        assert rows.nth(4).locator(".principal-creator").inner_text() == "作成元 Theme Agent"
+        assert rows.nth(1).locator(".principal-creator").count() == 0
+        assert page.get_by_label("作成元 Theme User").count() == 1
+        assert page.get_by_label("作成元 Theme Agent").count() == 1
+        assert "委譲" not in "".join(rows.all_inner_texts())
+        alignment = rows.nth(3).evaluate("row => { const tree = row.querySelector('.principal-tree').getBoundingClientRect(); const cells = [...row.querySelectorAll('td')].slice(1).map(cell => cell.getBoundingClientRect()); return { treeCenter: tree.y + tree.height / 2, rowHeight: row.getBoundingClientRect().height, cellCenters: cells.map(cell => cell.y + cell.height / 2) }; }")
+        assert alignment["rowHeight"] > 40
+        assert all(abs(center - alignment["treeCenter"]) < .5 for center in alignment["cellCenters"])
+    if path == "/projects/THEME/board" and page.locator("[data-task=THEME-1]").count() == 1:
+        card = page.locator("[data-task=THEME-1]")
+        assert card.get_by_role("link", name="THEME-2", exact=True).count() == 1
+        assert card.get_by_text("レビュー待ち", exact=True).count() == 1
+        assert "hidden_blockers" not in card.inner_text()
     page.screenshot(path=str(SCREENSHOTS / screenshot), full_page=True)
 
 
@@ -122,13 +148,15 @@ try:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         for saved_theme, os_theme in (("light", "dark"), ("dark", "light")):
-            state = {"authenticated": True, "tasks_error": False}
+            state = {"authenticated": True, "tasks_error": False, "review_mode": "latest"}
             context = browser.new_context(color_scheme=os_theme)
             context.route("**/api/v1/**", api_route(state))
             context.add_init_script("""(() => { if (localStorage.getItem('agent-native-kanban.theme') === null) localStorage.setItem('agent-native-kanban.theme', '""" + saved_theme + """'); window.EventSource = class { constructor() {} close() {} }; })();""")
             page = context.new_page(); prefix = f"{saved_theme}-"
             for path, ready, name in [("/projects/THEME/board", "[data-task=THEME-1]", "board"), ("/resources", ".resource-card", "resources"), ("/projects/THEME/list", "tbody tr", "list"), ("/tasks/THEME-1", "[aria-label=タイトル]", "task-detail"), ("/inbox", "h1", "inbox"), ("/projects/THEME/settings", ".settings-table", "project-settings"), ("/admin", "h1", "admin"), ("/settings", "h1", "account-settings"), ("/signup/test-token", "h1", "signup")]:
                 verify_page(page, path, ready, saved_theme, f"{prefix}{name}.png")
+            page.goto(f"{base}/projects/THEME/board"); page.get_by_text("自由形式のレビュー本文", exact=True).wait_for()
+            state["review_mode"] = "none"; page.reload(); page.get_by_text("レビュー未実施", exact=True).wait_for(); assert_readable(page, f"{prefix}board-no-review")
             verify_page(page, "/projects", "h1", saved_theme, f"{prefix}projects.png")
             page.get_by_role("button", name="プロジェクトを作成").click(); page.get_by_role("dialog", name="プロジェクトを作成").wait_for()
             assert_readable(page, f"{prefix}modal"); page.screenshot(path=str(SCREENSHOTS / f"{prefix}modal.png"), full_page=True)
@@ -142,9 +170,9 @@ try:
             page.get_by_role("button", name="ログアウト").wait_for(); assert page.locator("html").get_attribute("data-theme") == saved_theme
             context.close()
         for os_theme in ("light", "dark"):
-            state = {"authenticated": True, "tasks_error": False}
+            state = {"authenticated": True, "tasks_error": False, "review_mode": "latest"}
             context = browser.new_context(color_scheme=os_theme); context.route("**/api/v1/**", api_route(state)); context.add_init_script("(() => { window.EventSource = class { constructor() {} close() {} }; })();")
-            page = context.new_page(); verify_page(page, "/projects/THEME/board", "[data-task=THEME-1]", os_theme, f"os-{os_theme}-board.png")
+            page = context.new_page(); verify_page(page, "/projects/THEME/board", "[data-task=THEME-1]", os_theme, f"os-{os_theme}-board.png"); page.get_by_text("自由形式のレビュー本文", exact=True).wait_for()
             assert page.evaluate("localStorage.getItem('agent-native-kanban.theme')") is None; context.close()
         browser.close()
     print(f"theme checks passed; screenshots: {SCREENSHOTS}")
