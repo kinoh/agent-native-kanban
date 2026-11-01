@@ -48,4 +48,5 @@ Questions: if the card is ambiguous or a card decision does not fit the code, st
 
 ### 引き継ぎ
 
-- 変更対象: `web/src/views/Board.tsx`、`web/src/styles.css`、`web/tests/behavior.py`、`web/tests/theme.py`、本 work record。次: これらだけを stage して日本語コミットを作成し、director へ報告する。
+- 変更対象: `web/src/views/Board.tsx`、`web/src/styles.css`、`web/tests/behavior.py`、`web/tests/theme.py`、本 work record。
+- 実装コミット: `5662cbc 条件待ちカードから依存先を辿れるようにする`。この記録をコミット後に director へ報告する。作業ツリーの未コミット差分は残さない。
