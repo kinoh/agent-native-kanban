@@ -46,4 +46,4 @@ Questions: if the card is ambiguous or a card decision does not fit the code, st
     リクエストを増やさない。
   - `behavior.py` は共有 lock で成功し、最新・未実施・自由形式・詳細・ライブ更新を確認。
     `theme.py` も同じ lock で成功し light/dark の両テーマを確認。
-  次: 差分を確認し、作業記録を含めて KAN-16 のコミットを作成する。
+  実装コミット: `ff64a48`（ボードで直近レビュー結果を確認できるようにする）。判断待ちはない。
