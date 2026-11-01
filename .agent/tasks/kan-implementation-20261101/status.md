@@ -62,3 +62,5 @@ Frontend correction delegation: /home/kino/.local/state/herdr-watch/20261101T203
 
 ### Backend acceptance
 Guide fixes da77939/c507a21 reviewed; director clarified remaining static permission/payload descriptions and reran access tests (20/20). Seven formatting-only files restored without semantic changes. KAN-5 accepted. Pending live action: finish its existing implementation claim and move to 完了, with commit/test evidence and explicit note that running server has not been restarted. KAN-1–4 remain pending frontend correction and real-backend browser results.
+
+KAN-5 live outcome verified: 完了, unoccupied; implementation summary contains commits/test evidence and no-restart note. Final guide commit 962cdb9. Other cards retain their existing claims.
