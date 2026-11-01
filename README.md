@@ -96,6 +96,7 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 |---|---|
 | 認証 | `POST /auth/login`、`POST /auth/logout`、`GET・POST /signup/{token}` |
 | 自分 | `GET /me`、`PUT /me/password`、`GET /me/inbox`（自分宛の質問・レビュー依頼） |
+| 委譲 | `GET・POST /me/delegations`（認証に使ったトークンから発行した委譲トークン） |
 | 主体 | `GET・POST /principals`（POST はエージェントの登録）、`GET・PATCH・DELETE /principals/{id}`、`PUT /principals/{id}/password` |
 | 権限 | `GET・POST /principals/{id}/grants`、`DELETE /grants/{id}` |
 | トークン | `GET・POST /principals/{id}/tokens`、`DELETE /tokens/{id}` |
@@ -121,6 +122,35 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 - プロジェクトに何らかの権限があれば閲覧できる
 - 進捗・コメント・成果物の記録には `edit` `claim` `review` `approve` のいずれかが必要
 - 同じ組織の主体の表示名は、組織の全主体が見られる（担当の選択に必要）。メールアドレスは管理者と本人だけ
+
+### 権限の委譲
+
+サブエージェントには、自分のトークンから権限を絞った委譲トークンを渡す。主体は増えず、組織管理者権限も要らない。
+
+```bash
+# DEV-12 とその子孫だけで claim を使える、1時間のトークンを発行する。token は1度だけ返る
+curl -H "$H" -H "$J" -d '{
+  "name": "implementer",
+  "expires_at": "2026-11-01T12:00:00Z",
+  "scopes": [{ "project_id": "...", "permission": "claim" }],
+  "tasks": ["DEV-12"]
+}' "$A/me/delegations"
+
+# 使い終わったら発行元のトークンか委譲トークン自身で失効させる
+curl -H "$H" -X DELETE "$A/tokens/<id>"
+```
+
+- `scopes` は必須で、委譲元が持つ範囲だけを指定できる。`review` `approve` は渡せるが、`admin` は渡せない
+- `tasks` を省くとプロジェクト全体になる。指定すると、そのタスクと子孫だけを読み書きでき、範囲外は存在しない扱い（404）になる。プロジェクトの段階や遷移ルールは見える。`scopes` のプロジェクトと過不足なく対応させる
+- 実効権限はリクエストごとに、主体の現在の権限と親までの全ての委譲を重ねて判定する。親の失効・期限切れや主体の無効化は子孫全てに及ぶ
+- `expires_at` は必須で、親の期限を超えられない。長さの上限はない。委譲トークンからの再委譲はさらに絞る場合に限り、深さの制限なくできる
+- 委譲元はトークンに限る（Cookie セッションからは発行できない）
+- 委譲トークンは通常のトークンの発行・一覧、パスワード変更には使えない（`403 delegated_token_restricted`）
+- 親が取得した `claim_id` は、現段階の取得権限を持つ委譲トークンなら引き継げる。主体が同じなので、同じタスクを見られる委譲トークンどうしは作業権を区別しない
+- タスクを限定したトークンは、範囲内のタスクの子だけを作れる（`403 outside_delegated_tasks`）
+- 操作の主体は委譲元のまま記録し、イベントの `delegated_token_id` でどの委譲トークンの操作かを追える。発行は `token.delegated` イベントに範囲ごと残る
+
+独立したレビューや承認が必要なら、遷移ルールの必要権限を外部の主体だけに与える。委譲はその保証を目的としない。
 
 ## 仕様の解釈
 
