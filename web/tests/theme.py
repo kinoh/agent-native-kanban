@@ -40,7 +40,7 @@ independent = {"id": "human-2", "kind": "human", "display_name": "Theme Independ
 
 
 def task():
-    work = {"readiness": "ready", "claimable": True, "can_claim": True, "claim_permission": "claim", "has_claim_permission": True, "reasons": [], "occupant": None, "activity": None, "is_working": False, "acquired_at": None, "claim_id": None, "hold_reason": None, "blockers": [], "hidden_blockers": 0}
+    work = {"readiness": "waiting", "claimable": False, "can_claim": False, "claim_permission": "claim", "has_claim_permission": True, "reasons": [{"code": "blocked_by_dependencies", "message": "dependent tasks are not finished"}], "occupant": None, "activity": None, "is_working": False, "acquired_at": None, "claim_id": None, "hold_reason": None, "blockers": [{"id": "task-dependency", "key": "THEME-2", "reason": "レビュー待ち", "discarded": False}], "hidden_blockers": 1}
     return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "responsible": None, "assignee": None, "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work}
 
 
@@ -99,7 +99,7 @@ def contrast(foreground, background):
     return (max(first, second) + 0.05) / (min(first, second) + 0.05)
 
 
-CONTENT = "main h1, main h2, main h3, main p, main li, main th, main td, main label, main .card-title, main .task-link, main [role=alert], main input, main select, main textarea, main button:not(.primary):not(.link):not(:disabled), .center-card h1, .center-card p, .center-card label, .center-card input, .center-card [role=alert], .modal h2, .modal p, .modal li, .modal label, .modal input, .modal select, .modal textarea, .modal button:not(.primary):not(.link):not(:disabled), .sidebar .org, .sidebar .nav-link, .sidebar .me span, .theme-toggle button"
+CONTENT = "main h1, main h2, main h3, main p, main li, main th, main td, main label, main .card-title, main .card-blocker, main .task-link, main [role=alert], main input, main select, main textarea, main button:not(.primary):not(.link):not(:disabled), .center-card h1, .center-card p, .center-card label, .center-card input, .center-card [role=alert], .modal h2, .modal p, .modal li, .modal label, .modal input, .modal select, .modal textarea, .modal button:not(.primary):not(.link):not(:disabled), .sidebar .org, .sidebar .nav-link, .sidebar .me span, .theme-toggle button"
 
 
 def assert_readable(page, screen):
@@ -127,6 +127,11 @@ def verify_page(page, path, ready, theme, screenshot):
         alignment = rows.nth(3).evaluate("row => { const tree = row.querySelector('.principal-tree').getBoundingClientRect(); const cells = [...row.querySelectorAll('td')].slice(1).map(cell => cell.getBoundingClientRect()); return { treeCenter: tree.y + tree.height / 2, rowHeight: row.getBoundingClientRect().height, cellCenters: cells.map(cell => cell.y + cell.height / 2) }; }")
         assert alignment["rowHeight"] > 40
         assert all(abs(center - alignment["treeCenter"]) < .5 for center in alignment["cellCenters"])
+    if path == "/projects/THEME/board" and page.locator("[data-task=THEME-1]").count() == 1:
+        card = page.locator("[data-task=THEME-1]")
+        assert card.get_by_role("link", name="THEME-2", exact=True).count() == 1
+        assert card.get_by_text("レビュー待ち", exact=True).count() == 1
+        assert "hidden_blockers" not in card.inner_text()
     page.screenshot(path=str(SCREENSHOTS / screenshot), full_page=True)
 
 

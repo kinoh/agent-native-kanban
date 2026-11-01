@@ -6,6 +6,31 @@ import type { Project, Task } from "../types";
 import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
 import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
 
+function CardBlockers({ task }: { task: Task }) {
+  if (task.work.readiness !== "waiting" || task.work.blockers.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="card-blockers" aria-label="依存先">
+      {task.work.blockers.map((blocker) => (
+        <li key={blocker.id} className="card-blocker">
+          <a
+            href={`/tasks/${blocker.key}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              navigate(`/tasks/${blocker.key}`);
+            }}
+          >
+            {blocker.key}
+          </a>
+          <span>{blocker.reason}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Card({
   task,
   selected,
@@ -51,6 +76,7 @@ function Card({
           </span>
         )}
       </div>
+      <CardBlockers task={task} />
     </article>
   );
 }
@@ -87,7 +113,8 @@ export function BoardView({ project, session }: { project: Project; session: Ses
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey || creating || moving) {
+      const focusedControl = event.target instanceof HTMLElement ? event.target.closest("a, button") : null;
+      if (isTyping(event.target) || focusedControl || event.metaKey || event.ctrlKey || event.altKey || creating || moving) {
         return;
       }
       const column = columns.findIndex((item) => item.tasks.some((task) => task.key === selected));
