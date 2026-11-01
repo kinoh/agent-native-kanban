@@ -339,12 +339,17 @@ try:
         results['visible_blockers']={'key_and_reason':True,'hidden_blocker_details_absent':True,'dependency_navigation':True,'keyboard_dependency_navigation':True,'live_completion_update':True}
         page.goto(base+'/admin')
         page.get_by_text('作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。',exact=True).wait_for()
-        agent_row=page.locator('tr').filter(has_text='Orchestrator')
+        agent_row=page.locator('[data-principal="agent-1"]')
         principal_rows=page.locator('table.settings-table').nth(1).locator('tbody tr')
         assert principal_rows.count()==5
         assert principal_rows.evaluate_all('rows => rows.map(row => row.dataset.principal)')==['human-2','agent-3','human-1','agent-1','agent-2']
         indents=principal_rows.evaluate_all('rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector(".principal-tree")).paddingInlineStart]))')
         assert indents=={'human-2':'0px','agent-3':'0px','human-1':'0px','agent-1':'18px','agent-2':'36px'}
+        assert agent_row.locator('.principal-name').inner_text()=='Orchestrator'
+        assert agent_row.locator('.principal-creator').inner_text()=='作成元 Auditor'
+        assert page.locator('[data-principal="agent-2"] .principal-name').inner_text()=='Builder'
+        assert page.locator('[data-principal="agent-2"] .principal-creator').inner_text()=='作成元 Orchestrator'
+        assert page.locator('[data-principal="agent-3"] .principal-creator').count()==0
         assert page.get_by_label('作成元 Auditor').count()==1
         assert page.get_by_label('作成元 Orchestrator').count()==1
         assert '委譲' not in ''.join(principal_rows.all_inner_texts())
@@ -453,7 +458,7 @@ try:
         page.get_by_label('表示名',exact=True).fill('Renamed Agent')
         with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/principals/agent-1')):
             page.get_by_role('button',name='表示名を保存',exact=True).click()
-        page.get_by_text('Renamed Agent').wait_for()
+        page.locator('[data-principal="agent-1"] .principal-name').get_by_text('Renamed Agent',exact=True).wait_for()
         page.locator('[data-principal="human-1"]').get_by_role('button',name='表示名を変更',exact=True).click()
         page.get_by_label('表示名',exact=True).fill('Lead Auditor')
         with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/api/v1/principals/human-1')):

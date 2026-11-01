@@ -122,6 +122,11 @@ def verify_page(page, path, ready, theme, screenshot):
         assert rows.evaluate_all("rows => rows.map(row => row.dataset.principal)") == ["human-2", "agent-3", "human-1", "agent-1", "agent-2"]
         indents = rows.evaluate_all("rows => Object.fromEntries(rows.map(row => [row.dataset.principal, getComputedStyle(row.querySelector('.principal-tree')).paddingInlineStart]))")
         assert indents == {"human-2": "0px", "agent-3": "0px", "human-1": "0px", "agent-1": "18px", "agent-2": "36px"}
+        assert rows.nth(3).locator(".principal-name").inner_text() == "Theme Agent"
+        assert rows.nth(3).locator(".principal-creator").inner_text() == "作成元 Theme User"
+        assert rows.nth(4).locator(".principal-name").inner_text() == "Theme Builder"
+        assert rows.nth(4).locator(".principal-creator").inner_text() == "作成元 Theme Agent"
+        assert rows.nth(1).locator(".principal-creator").count() == 0
         assert page.get_by_label("作成元 Theme User").count() == 1
         assert page.get_by_label("作成元 Theme Agent").count() == 1
         assert "委譲" not in "".join(rows.all_inner_texts())
