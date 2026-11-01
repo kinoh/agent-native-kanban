@@ -1,0 +1,39 @@
+version: '3'
+
+vars:
+  DB: kanban.sqlite
+  LISTEN: 127.0.0.1:18787
+  PUBLIC_URL: 'http://{{.LISTEN}}'
+  ORG: Acme
+
+tasks:
+  run:
+    desc: Web とサーバーをビルドし、初回の組織を作って起動する
+    env:
+      RUST_LOG: info
+    cmds:
+      - task: build
+      - |
+        if [ ! -e {{.DB | shellQuote}} ]; then
+          echo '初回の組織を作成する。表示される URL から管理者を登録できる。'
+          cargo run --release --locked -- bootstrap \
+            --db {{.DB | shellQuote}} --public-url {{.PUBLIC_URL | shellQuote}} \
+            --org {{.ORG | shellQuote}} --expires-hours 24
+        fi
+      - >-
+        cargo run --release --locked -- serve
+        --db {{.DB | shellQuote}} --listen {{.LISTEN | shellQuote}}
+        --public-url {{.PUBLIC_URL | shellQuote}} --web-dist web/dist
+
+  build:
+    desc: Web の依存をインストールし、Web とサーバーをビルドする
+    cmds:
+      - task: web:build
+      - cargo build --release --locked
+
+  web:build:
+    internal: true
+    dir: web
+    cmds:
+      - npm ci
+      - npm run build

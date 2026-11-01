@@ -8,6 +8,25 @@
 
 ## 起動
 
+Rust（Cargo）、Node.js（npm）、Task（go-task）を用意して実行する。
+
+```bash
+task run
+```
+
+Web の依存インストール、Web とサーバーの release ビルド、サーバー起動まで実行する。
+`kanban.sqlite` が存在しない初回は、組織 `Acme` を作成し、24時間有効・1回限りの管理者登録 URL を端末に表示する。
+起動後にその URL を開いて登録する。通常のアクセス先は `http://127.0.0.1:18787`。停止は Ctrl+C。
+2回目以降は既存の DB を使う。ビルドだけなら `task build`。
+
+DB、待受アドレス、公開 URL、初回の組織名は指定できる。`PUBLIC_URL` の既定値は `http://` と `LISTEN` をつないだ値。
+
+```bash
+task run DB=local.sqlite LISTEN=127.0.0.1:18788 PUBLIC_URL=http://localhost:18788 ORG=Example
+```
+
+個別にビルド・初期化・起動する場合は次の手順を使う。
+
 ```bash
 (cd web && npm ci && npm run build)
 cargo build --release
