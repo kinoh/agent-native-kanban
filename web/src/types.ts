@@ -177,3 +177,22 @@ export interface SignupLink {
   expires_at: string;
   revoked_at: string | null;
 }
+
+export interface ResourceHold {
+  id: string;
+  reason: string;
+  acquired_at: string;
+  holder: PrincipalRef;
+}
+
+export interface Resource {
+  id: string;
+  org_id: string;
+  project_id: string | null;
+  name: string;
+  description: string;
+  capacity: number;
+  created_at: string;
+  updated_at: string;
+  holds: ResourceHold[];
+}

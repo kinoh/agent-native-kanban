@@ -81,6 +81,30 @@ curl -H "$H" -H "$J" -d '{"claim_id":"<claim-id>","to":"<principal-id>","note":"
   "$API/tasks/PROJ-12/work/transfer"
 ```
 
+## Share limited resources
+
+Resources represent shared capacity such as a test environment. An organization resource is visible to every principal in the organization; a project resource is visible to principals who can see that whole project. Task-limited delegated tokens cannot read or acquire resources. A claim-capable principal can acquire one slot, and an administrator creates, changes, deletes, or revokes holds. Do not put secrets in `reason`: every principal who can view the resource can read it in its hold and event history.
+
+```sh
+# An organization administrator creates an organization resource. Use project_id instead
+# for a project resource; the scope cannot be changed later.
+curl -H "$H" -H "$J" -d '{"name":"test-environment","description":"integration tests","capacity":1}' \
+  "$API/resources"
+curl -H "$H" "$API/resources"
+
+# A claim-capable principal acquires one slot. Keep hold_id until it is released.
+curl -H "$H" -H "$J" -d '{"reason":"run acceptance tests"}' \
+  "$API/resources/<resource-id>/acquire"
+curl -H "$H" -H "$J" -d '{"hold_id":"<hold-id>"}' \
+  "$API/resources/<resource-id>/release"
+
+# An administrator explicitly recovers a forgotten hold.
+curl -H "$H" -H "$J" -d '{"hold_id":"<hold-id>","reason":"holder is inactive"}' \
+  "$API/resources/<resource-id>/revoke"
+```
+
+There is no queue, lease, timeout, or automatic release. When `acquire` returns `409 resource_busy`, inspect `error.details.holders` or subscribe to events and retry after a release. A resource with active holds cannot be deleted, and capacity cannot be reduced below its active hold count.
+
 ## Record context and collaborate
 
 Use `POST /tasks/{task}/comments` with `kind` and `body` for comments, progress, decisions, problems, and answers. Questions and review requests also need `addressee_id`; answers need `parent_id`. Use `POST /tasks/{task}/artifacts` with `{ "role":"artifact|attachment", "name":"…", "url":"https://…" }` for links, or `POST /tasks/{task}/files?role=artifact&name=report.txt` for uploads. Add and remove dependencies with `POST /tasks/{task}/dependencies` (`{ "depends_on":"<id-or-key>", "reason":"…" }`) and `DELETE /tasks/{task}/dependencies/{other}`; use `POST /tasks/{task}/links` with `{ "related":"<id-or-key>" }` and `DELETE /tasks/{task}/links/{other}` for related tasks. A dependency blocks claimability until its task reaches a final stage. `GET /tasks/{task}/history` and `GET /events?after=<seq|latest>` expose audit history; retain each event response's `cursor` for the next request. `GET /events/stream?after=<seq|latest>` is the SSE equivalent.
@@ -109,6 +133,7 @@ curl -H "$H" -H "$J" -d '{"to_stage_id":"<stage-id>","version":4}' "$API/tasks/P
 | Organization | `PATCH /organization` with `{ "name":"…" }` | organization administrator |
 | Principals and credentials | `GET|POST /principals`; `GET /principals/work`; `GET|PATCH|DELETE /principals/{id}`; `PUT /principals/{id}/password`; `GET|POST /principals/{id}/grants`; `DELETE /grants/{id}`; `GET|POST /principals/{id}/tokens`; `DELETE /tokens/{id}`; `GET|POST /signup-links`; `DELETE /signup-links/{id}` | principals are readable within the organization; `/principals/work` lists every principal with its current reported claims, but includes only tasks visible to the credential (and never exposes omitted-task counts); principal changes and signup links require organization admin; grants require admin in the target scope; normal token listing/issuance requires organization admin or the non-delegated human owner |
 | Projects and workflow | `GET|POST /projects`; `GET|PATCH /projects/{id}`; `POST /projects/{id}/stages`; `PATCH|DELETE /stages/{id}`; `PUT /projects/{id}/transition-rules` with `{ "rules":[{ "from_stage_id":"…", "to_stage_id":"…", "required_permission":"edit", "require_work_done":true }] }` | reading requires project visibility; creating a project requires organization admin; changing a project, its stages or transition rules requires admin for that project |
+| Resources | `GET|POST /resources`; `GET|PATCH|DELETE /resources/{id}`; `POST /resources/{id}/{acquire,release,revoke}` | project resources: visible to whole-project viewers, acquired with `claim`, administered with project `admin`; organization resources: visible to all organization principals, acquired by any claim-capable principal, administered by organization admin; task-limited delegations cannot access resources |
 | Tasks | `GET|POST /tasks`; `GET|PATCH /tasks/{task}`; `GET /tasks/{task}/context`; `GET /tasks/{task}/history`; `POST /tasks/{task}/stage` | visible project grant and operation-specific permission |
 | Work | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete,reopen,hold,unhold,revoke,reassign}` | holder, edit, or admin as described above |
 | Collaboration | `POST /tasks/{task}/{comments,artifacts,files,dependencies,links}`; `DELETE /tasks/{task}/{dependencies,links}/{other}`; `GET /artifacts/{id}/content` | visible project grant and operation-specific permission |
@@ -138,6 +163,7 @@ Errors are JSON: `{ "error": { "code": "…", "message": "…", "details": { …
 - `404 not_found`: the resource does not exist or is outside your visible scope.
 - `409 not_claimable`: inspect `details.reasons`; common states are no work required, an unfinished dependency, work already done, or an occupied task. `task_occupied` rejects a stage move while a holder remains.
 - `409 stale_claim`: the holder changed or released/completed work; claim again and use the returned claim ID. `409 version_conflict` means reread the task and retry with its current version. `409 invalid_activity_transition` means start/pause/resume was attempted from the wrong activity.
+- `409 resource_busy`: all capacity is held; `details.holders` identifies the current holders. `stale_hold` means a hold was released or revoked; `hold_not_owned` means another principal holds it.
 - `422 invalid_request`: correct fields, required values, or validation errors. Display names and organization names are trimmed and must be 1–100 characters.
 "#;
 

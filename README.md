@@ -126,6 +126,7 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 | サインアップ URL | `GET・POST /signup-links`、`DELETE /signup-links/{id}` |
 | プロジェクト | `GET・POST /projects`、`GET・PATCH /projects/{id}` |
 | ワークフロー | `POST /projects/{id}/stages`、`PATCH・DELETE /stages/{id}`、`PUT /projects/{id}/transition-rules` |
+| リソース | `GET・POST /resources`、`GET・PATCH・DELETE /resources/{id}`、`POST /resources/{id}/{acquire,release,revoke}` |
 | タスク | `GET・POST /tasks`、`GET・PATCH /tasks/{task}`、`GET /tasks/{task}/context`、`GET /tasks/{task}/history` |
 | 業務段階 | `POST /tasks/{task}/stage` |
 | 作業（占有者） | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete}` |
@@ -136,6 +137,16 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 | 変更イベント | `GET /events?after=<seq|latest>`、`GET /events/stream?after=<seq|latest>`（SSE） |
 
 イベントは `seq` の昇順で欠けなく読める。応答の `cursor` を次の `after` に渡す。新しい仕事は `work.available` で検出する。SSE は `Last-Event-ID` で再開でき、認証情報が失効すると接続を閉じる。
+
+### 共有リソース
+
+リソースは組織またはプロジェクトに属する、上限付きの共有枠。`capacity: 1` は mutex、2以上は semaphore として使える。作成時に所属を決め、その後は変更できない。同じ所属内の名前は一意。
+
+組織リソースは組織の全主体が閲覧でき、いずれかのスコープで `claim` を持つ主体が確保できる。プロジェクトリソースはプロジェクト全体を閲覧できる主体に見え、同プロジェクトの `claim` で確保できる。作成・編集・削除・解除は、組織リソースなら組織管理者、プロジェクトリソースならプロジェクトの `admin` が行う。タスク限定の委譲トークンは、リソースを閲覧・確保できない。
+
+`POST /resources/{id}/acquire` は `{ "reason":"…" }`（前後空白を除き1〜500文字）を受け、成功時に `hold_id` を返す。確保者だけが `POST /resources/{id}/release` でその `hold_id` を解放できる。管理者は理由を添えて `revoke` できる。満杯なら `409 resource_busy` と現在の `details.holders` を返す。待ち行列、期限、自動解放はない。確保が残るリソースの削除と、確保数より小さい上限への変更は `409`。理由は閲覧できる主体全員とイベント購読者に見えるため、秘密を書かない。
+
+作成・変更・削除・確保・解放・解除は `resource.*` イベントとして記録され、操作主体・リソース・理由・委譲トークンを追跡できる。組織リソースのイベントは、タスク限定でない同組織の主体へ配信する。解放イベントを購読してから再度 acquire する。
 
 ## 権限
 
@@ -190,6 +201,7 @@ Web UI では発行しない。組織管理者は「組織の管理」の「権�
 - **作業権**: 取得ごとに新しい `claim_id` を発行する。占有者の交代後、古い `claim_id` の操作は `stale_claim` で拒否する
 - **占有の期限切れはない**。作業状態は報告された状態なので、ハートビートによる自動解放はしない。放棄された作業は管理者が `revoke`・`reassign` で解除する。占有者が無効・削除になっても、解除されるまで取得可能にしない
 - **主体の削除**は履歴を残す論理削除。認証情報・権限・メールアドレスは消し、ID と表示名、作業記録、担当、占有は残す
+- **リソース確保**はタスクの占有とは別の、明示的に解放する共有枠。主体の無効化・削除、タスクの完了では解放しない。放置された確保は管理者が理由を残して解除する
 - **メールアドレスはサーバー全体で一意**で、人間は1つの組織にだけ所属する
 
 ## 既存DBの更新
