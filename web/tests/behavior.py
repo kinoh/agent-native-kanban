@@ -38,7 +38,11 @@ def discard_task(i):
     if i==2 and state['discard_view']:
         return {**task(2),'work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'needs it','discarded':True}]}}
     return task(i)
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False}
+def blocker_task():
+    if state['blockers_complete']:
+        return task(2)
+    return {**task(2),'title':'Wait for visible dependency','work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'API contract review','discarded':False}],'hidden_blockers':1}}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False,'blockers_complete':False}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 def principal_work():
@@ -200,6 +204,8 @@ def route(r):
             body={'tasks':[task(i) for i in range(1,501)],'total':501,'next_cursor':500}
         elif state['mode']=='discard':
             body={'tasks':[discard_task(1),discard_task(2)],'total':2,'next_cursor':None}
+        elif state['mode']=='blockers':
+            body={'tasks':[task(1),blocker_task()],'total':2,'next_cursor':None}
         else: body={'tasks':[task(1,new_stage if state['moved'] else stage)],'total':1,'next_cursor':None}
     else: raise AssertionError(path)
     r.fulfill(status=200,content_type='application/json',body=json.dumps(body))
@@ -269,6 +275,29 @@ try:
         assert history.nth(1).locator('.badge').count()==0
         assert page.locator('.history .badge').get_attribute('title')=='委譲トークン live-token-bbbbbbbb'
         results['delegated_history']=True
+        state['mode']='blockers'
+        state['blockers_complete']=False
+        page.goto(base+'/projects/DEV/board')
+        waiting_card=page.locator('[data-task="DEV-2"]')
+        waiting_card.get_by_text('条件待ち',exact=True).wait_for()
+        blockers=waiting_card.get_by_role('list',name='依存先')
+        assert blockers.get_by_role('link',name='DEV-1',exact=True).count()==1
+        assert blockers.get_by_text('API contract review',exact=True).count()==1
+        assert 'HIDDEN-9' not in waiting_card.inner_text()
+        assert 'Hidden dependency title' not in waiting_card.inner_text()
+        assert 'secret approval reason' not in waiting_card.inner_text()
+        waiting_card.get_by_role('link',name='DEV-1',exact=True).click()
+        page.wait_for_url('**/tasks/DEV-1')
+        page.get_by_label('タイトル').wait_for()
+        state['blockers_complete']=True
+        page.goto(base+'/projects/DEV/board')
+        waiting_card=page.locator('[data-task="DEV-2"]')
+        waiting_card.get_by_text('条件待ち',exact=True).wait_for()
+        with page.expect_response(lambda r:'/api/v1/tasks?' in r.url):
+            page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
+        waiting_card.get_by_text('着手可',exact=True).wait_for()
+        assert waiting_card.get_by_role('list',name='依存先').count()==0
+        results['visible_blockers']={'key_and_reason':True,'hidden_blocker_details_absent':True,'dependency_navigation':True,'live_completion_update':True}
         page.goto(base+'/admin')
         page.get_by_text('作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。',exact=True).wait_for()
         agent_row=page.locator('tr').filter(has_text='Orchestrator')
