@@ -169,6 +169,7 @@ try:
         for os_theme in ("light", "dark"):
             state = {"authenticated": True, "tasks_error": False}
             context = browser.new_context(color_scheme=os_theme); context.route("**/api/v1/**", api_route(state)); context.add_init_script("(() => { window.EventSource = class { constructor() {} close() {} }; })();")
+            page = context.new_page(); verify_page(page, "/projects/THEME/board", "[data-task=THEME-1]", os_theme, f"os-{os_theme}-board.png")
             assert page.evaluate("localStorage.getItem('agent-native-kanban.theme')") is None; context.close()
         browser.close()
     print(f"theme checks passed; screenshots: {SCREENSHOTS}")
