@@ -310,6 +310,18 @@ pub async fn upload_file(
         .await
 }
 
+/// RFC 5987 の形式でファイル名を渡す。非 ASCII の名前も安全なヘッダーになる。
+fn content_disposition(name: &str) -> String {
+    let encoded: String = name
+        .bytes()
+        .map(|byte| match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-' | b'_' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect();
+    format!("attachment; filename*=UTF-8''{encoded}")
+}
+
 /// ブラウザ内で実行されないよう、必ずダウンロードとして返す。
 pub async fn download(
     State(state): State<AppState>,
@@ -340,9 +352,7 @@ pub async fn download(
     let media_type = media_type
         .and_then(|value| HeaderValue::from_str(&value).ok())
         .unwrap_or(HeaderValue::from_static("application/octet-stream"));
-    let ascii_name: String =
-        name.chars().map(|c| if c.is_ascii_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
-    let disposition = HeaderValue::from_str(&format!("attachment; filename=\"{ascii_name}\""))
+    let disposition = HeaderValue::from_str(&content_disposition(&name))
         .map_err(|e| ApiError::internal(format!("content disposition: {e}")))?;
     Ok((
         [
@@ -504,4 +514,16 @@ pub async fn remove_task_link(
             Ok(StatusCode::NO_CONTENT)
         })
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::content_disposition;
+
+    #[test]
+    fn download_names_keep_non_ascii_and_cannot_break_the_header() {
+        assert_eq!(content_disposition("report.txt"), "attachment; filename*=UTF-8''report.txt");
+        assert_eq!(content_disposition("報告.txt"), "attachment; filename*=UTF-8''%E5%A0%B1%E5%91%8A.txt");
+        assert!(!content_disposition("a\"\r\nX-Evil: 1").contains(['"', '\r', '\n']));
+    }
 }

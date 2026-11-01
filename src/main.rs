@@ -50,14 +50,16 @@ async fn serve(args: &[String]) -> Result<(), String> {
         .await
         .map_err(|e| format!("bind {}: {e}", flags["listen"]))?;
     tracing::info!(listen = %flags["listen"], public_url = %flags["public-url"], "server started");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            if let Err(error) = tokio::signal::ctrl_c().await {
-                tracing::error!(%error, "failed to listen for shutdown signal");
-            }
-        })
-        .await
-        .map_err(|e| format!("server: {e}"))
+    // SSE の接続は閉じないので、接続の終了を待たずに停止する。
+    // 書き込みはトランザクション単位で完結しているので、途中で止めても不整合は残らない。
+    tokio::select! {
+        result = axum::serve(listener, app) => result.map_err(|e| format!("server: {e}")),
+        signal = tokio::signal::ctrl_c() => {
+            signal.map_err(|e| format!("shutdown signal: {e}"))?;
+            tracing::info!("server stopped by signal");
+            Ok(())
+        }
+    }
 }
 
 fn bootstrap(args: &[String]) -> Result<(), String> {
