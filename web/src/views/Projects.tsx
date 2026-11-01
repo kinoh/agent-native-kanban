@@ -38,7 +38,7 @@ function CreateProject({ session, onClose }: { session: Session; onClose: () => 
           <input value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
         <label>
-          キー（FOO-123 の FOO の部分。{KEY_RULE}）
+          キー（{KEY_RULE}）
           <input
             value={key}
             onChange={(e) => {
