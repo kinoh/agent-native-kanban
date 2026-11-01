@@ -190,6 +190,11 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .work-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 10px; }
 .facts div { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
 .facts span:first-child { color: var(--muted); }
+.discard-badge { border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; color: var(--muted); font-size: 10px; }
+.discarded-blocker { color: var(--amber); font-size: 11px; }
+.discard-note { margin: 8px 0; }
+.card.discarded .key, .card.discarded .card-title, tr.discarded .key, tr.discarded .task-title,
+.task-link.discarded, .title-input.discarded { text-decoration: line-through; }
 .reasons { margin: 8px 0; color: var(--amber); font-size: 12px; }
 .actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .related li { padding: 3px 0; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }

@@ -60,6 +60,15 @@ export function canAdminProject(session: Session, project: Project) {
   );
 }
 
+export function canEditProject(session: Session, project: Project) {
+  return (
+    canAdminProject(session, project) ||
+    session.me.grants.some(
+      (grant) => grant.permission === "edit" && (grant.project_id === null || grant.project_id === project.id),
+    )
+  );
+}
+
 const OVERVIEW_COLLAPSED_LINES = 2;
 const OVERVIEW_COLLAPSED_CHARS = 160;
 

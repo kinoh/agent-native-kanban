@@ -66,6 +66,13 @@ curl -H "$H" -H "$J" -d '{"claim_id":"<claim-id>","summary":"what changed","evid
 
 `work/complete` records that the current work is done; it does **not** move the task to a final business stage. Use `POST /tasks/{task}/stage` with `to_stage_id` and the task's current `version` when the workflow permits that move. A stage that requires work opens a fresh claim cycle.
 
+Close a task you decided not to do with `discard` instead of moving it to a final stage. It keeps the task and its history, stays in the final stage and is shown struck through. Unlike a finished task it never releases its dependents: they stay blocked, with `discarded: true` in `work.blockers`, until the dependency is removed or the task is restored and finished. Restoring returns it to a non-final stage. Both need `edit`, the task's current `version`, and a `reason` of 1–500 characters; transition rules do not apply. Discarding is rejected while the task is occupied and after it reached a final stage normally.
+
+```sh
+curl -H "$H" -H "$J" -d '{"version":4,"to_stage_id":"<final-stage-id>","reason":"replaced by PROJ-20"}' "$API/tasks/PROJ-12/discard"
+curl -H "$H" -H "$J" -d '{"version":5,"to_stage_id":"<non-final-stage-id>","reason":"needed again"}' "$API/tasks/PROJ-12/restore"
+```
+
 Pause/resume, release, and transfer are alternatives to finishing the current claim, not steps before `complete`:
 
 ```sh
@@ -134,7 +141,7 @@ curl -H "$H" -H "$J" -d '{"to_stage_id":"<stage-id>","version":4}' "$API/tasks/P
 | Principals and credentials | `GET|POST /principals`; `GET /principals/work`; `GET|PATCH|DELETE /principals/{id}`; `PUT /principals/{id}/password`; `GET|POST /principals/{id}/grants`; `DELETE /grants/{id}`; `GET|POST /principals/{id}/tokens`; `DELETE /tokens/{id}`; `GET|POST /signup-links`; `DELETE /signup-links/{id}` | principals are readable within the organization; `/principals/work` lists every principal with its current reported claims, but includes only tasks visible to the credential (and never exposes omitted-task counts); principal changes and signup links require organization admin; grants require admin in the target scope; normal token listing/issuance requires organization admin or the non-delegated human owner |
 | Projects and workflow | `GET|POST /projects`; `GET|PATCH /projects/{id}`; `POST /projects/{id}/stages`; `PATCH|DELETE /stages/{id}`; `PUT /projects/{id}/transition-rules` with `{ "rules":[{ "from_stage_id":"…", "to_stage_id":"…", "required_permission":"edit", "require_work_done":true }] }` | reading requires project visibility; creating a project requires organization admin; changing a project, including its `description` overview, its stages or transition rules requires admin for that project |
 | Resources | `GET|POST /resources`; `GET|PATCH|DELETE /resources/{id}`; `POST /resources/{id}/{acquire,release,revoke}` | project resources: visible to whole-project viewers, acquired with `claim`, administered with project `admin`; organization resources: visible to all organization principals, acquired by any claim-capable principal, administered by organization admin; task-limited delegations cannot access resources |
-| Tasks | `GET|POST /tasks`; `GET|PATCH /tasks/{task}`; `GET /tasks/{task}/context`; `GET /tasks/{task}/history`; `POST /tasks/{task}/stage` | visible project grant and operation-specific permission |
+| Tasks | `GET|POST /tasks`; `GET|PATCH /tasks/{task}`; `GET /tasks/{task}/context`; `GET /tasks/{task}/history`; `POST /tasks/{task}/stage`; `POST /tasks/{task}/{discard,restore}` | visible project grant and operation-specific permission |
 | Work | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete,reopen,hold,unhold,revoke,reassign}` | holder, edit, or admin as described above |
 | Collaboration | `POST /tasks/{task}/{comments,artifacts,files,dependencies,links}`; `DELETE /tasks/{task}/{dependencies,links}/{other}`; `GET /artifacts/{id}/content` | visible project grant and operation-specific permission |
 | Delegation | `GET|POST /me/delegations`; `DELETE /tokens/{id}` | a bearer token, including a delegated token when the requested child scope/tasks are no wider than its own |
@@ -161,7 +168,8 @@ Errors are JSON: `{ "error": { "code": "…", "message": "…", "details": { …
 - `401 unauthenticated`: authenticate again or replace an expired/revoked token.
 - `403 permission_denied`: obtain the required grant; `details.required_permission` names it. `403 delegated_token_restricted` means use a non-delegated credential for identity or credential management.
 - `404 not_found`: the resource does not exist or is outside your visible scope.
-- `409 not_claimable`: inspect `details.reasons`; common states are no work required, an unfinished dependency, work already done, or an occupied task. `task_occupied` rejects a stage move while a holder remains.
+- `409 not_claimable`: inspect `details.reasons`; common states are no work required, a discarded task, an unfinished dependency, work already done, or an occupied task. `task_occupied` rejects a stage move or discard while a holder remains.
+- `409 task_discarded`: restore the task before moving it or discarding it again. `task_not_discarded` means there is nothing to restore; `task_finished` means the task already reached a final stage normally. `stage_has_discarded_tasks` rejects clearing `is_final` on a stage that holds discarded tasks.
 - `409 stale_claim`: the holder changed or released/completed work; claim again and use the returned claim ID. `409 version_conflict` means reread the task and retry with its current version. `409 invalid_activity_transition` means start/pause/resume was attempted from the wrong activity.
 - `409 resource_busy`: all capacity is held; `details.holders` identifies the current holders. `stale_hold` means a hold was released or revoked; `hold_not_owned` means another principal holds it.
 - `422 invalid_request`: correct fields, required values, or validation errors. Display names and organization names are trimmed and must be 1–100 characters.

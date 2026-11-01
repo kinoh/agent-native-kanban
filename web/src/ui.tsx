@@ -27,6 +27,7 @@ export const ACTIVITY_LABEL: Record<NonNullable<Work["activity"]>, string> = {
 const REASON_LABEL: Record<string, string> = {
   work_done: "この段階の作業は完了しています",
   no_work_required: "この段階には取得する作業がありません",
+  discarded: "このタスクは破棄されています",
   on_hold: "保留中です",
   blocked_by_dependencies: "依存タスクが未完了です",
   occupied_not_started: "他の主体が取得しています",
@@ -95,10 +96,14 @@ export function WorkBadge({ work }: { work: Work }) {
   );
 }
 
-export function TaskLink({ task }: { task: Pick<Task, "key" | "title"> }) {
+export function DiscardBadge() {
+  return <span className="discard-badge">破棄</span>;
+}
+
+export function TaskLink({ task }: { task: Pick<Task, "key" | "title"> & { discard?: Task["discard"] } }) {
   return (
     <a
-      className="task-link"
+      className={task.discard ? "task-link discarded" : "task-link"}
       href={`/tasks/${task.key}`}
       onClick={(event) => {
         event.preventDefault();

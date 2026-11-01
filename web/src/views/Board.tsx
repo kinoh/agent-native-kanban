@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Session } from "../App";
 import { navigate } from "../router";
 import type { Project, Task } from "../types";
-import { Avatar, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
+import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
 import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
 
 function Card({
@@ -17,7 +17,7 @@ function Card({
 }) {
   return (
     <article
-      className={selected ? "card selected" : "card"}
+      className={["card", selected ? "selected" : "", task.discard ? "discarded" : ""].join(" ").trim()}
       data-task={task.key}
       draggable
       onDragStart={(event) => event.dataTransfer.setData("text/plain", task.key)}
@@ -26,6 +26,7 @@ function Card({
     >
       <div className="card-top">
         <span className="key">{task.key}</span>
+        {task.discard && <DiscardBadge />}
         <PriorityMark priority={task.priority} />
         {task.assignee && <Avatar principal={task.assignee} size={18} />}
       </div>
@@ -42,6 +43,7 @@ function Card({
       </a>
       <div className="card-work">
         <WorkBadge work={task.work} />
+        {task.work.blockers.some((blocker) => blocker.discarded) && <span className="discarded-blocker">依存先が破棄</span>}
         {task.work.occupant && (
           <span className="occupant">
             <Avatar principal={task.work.occupant} size={18} />

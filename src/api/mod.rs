@@ -154,6 +154,8 @@ fn api_routes() -> Router<AppState> {
         .route("/tasks/{task}/context", get(tasks::context))
         .route("/tasks/{task}/history", get(feed::history))
         .route("/tasks/{task}/stage", post(tasks::move_stage))
+        .route("/tasks/{task}/discard", post(tasks::discard))
+        .route("/tasks/{task}/restore", post(tasks::restore))
         .route("/tasks/{task}/work/claim", post(work::claim))
         .route("/tasks/{task}/work/start", post(work::start))
         .route("/tasks/{task}/work/pause", post(work::pause))

@@ -22,6 +22,7 @@ use crate::tasks::{
 
 const DEFAULT_PAGE_SIZE: usize = 100;
 const MAX_PAGE_SIZE: usize = 500;
+const MAX_DISCARD_REASON_CHARS: usize = 500;
 
 pub fn task_event<'a>(
     task: &'a TaskRow,
@@ -491,6 +492,139 @@ pub struct MoveStageRequest {
 
 /// 業務段階の変更。作業の完了や解放とは独立した明示的な操作で、ここでだけ段階が変わる。
 /// 新しい段階では作業状態を初期化する。占有が残ったままの移動は拒否する。
+fn reject_occupied(task: &TaskRow) -> ApiResult<()> {
+    match &task.occupant {
+        Some(holder) => Err(ApiError::conflict(
+            "task_occupied",
+            format!("{} holds this work; it must be completed or released first", holder.display_name),
+        )
+        .details(json!({ "occupant": holder }))),
+        None => Ok(()),
+    }
+}
+
+/// 破棄の属性は最終段階にあるタスクだけに付く。通常の移動で崩さないよう、取り消しを経由させる。
+fn reject_discarded(task: &TaskRow) -> ApiResult<()> {
+    if task.discard.is_some() {
+        return Err(ApiError::conflict(
+            "task_discarded",
+            "this task is discarded; restore it before changing its stage",
+        ));
+    }
+    Ok(())
+}
+
+/// 同じプロジェクトの段階の名前と、最終段階かどうかを返す。
+fn stage_in_project(conn: &Connection, task: &TaskRow, stage_id: &str) -> ApiResult<(String, bool)> {
+    conn.query_row(
+        "SELECT name, is_final FROM stages WHERE id = ?1 AND project_id = ?2",
+        params![stage_id, task.project_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()?
+    .ok_or_else(|| ApiError::invalid("stage is not in this project"))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscardRequest {
+    /// 読み取った時点の version。他者の変更を見落として閉じないために必須。
+    version: i64,
+    to_stage_id: String,
+    reason: String,
+}
+
+/// 実施しないと決めたタスクを最終段階へ閉じる。完了の承認でも依存の解除でもないので、
+/// 遷移ルールは適用しない。
+pub async fn discard(
+    State(state): State<AppState>,
+    actor: Actor,
+    Path(reference): Path<String>,
+    ApiJson(request): ApiJson<DiscardRequest>,
+) -> ApiResult<Json<TaskView>> {
+    let reason = required_text("reason", &request.reason, MAX_DISCARD_REASON_CHARS)?;
+    state
+        .db
+        .write(move |conn| {
+            let task = resolve_task(conn, &actor, &reference)?;
+            actor.require(&task.project_id, Permission::Edit)?;
+            check_version(&task, request.version)?;
+            reject_discarded(&task)?;
+            if task.stage.is_final {
+                return Err(ApiError::conflict(
+                    "task_finished",
+                    "this task already reached a final stage; move it back before discarding it",
+                ));
+            }
+            let (target, is_final) = stage_in_project(conn, &task, &request.to_stage_id)?;
+            if !is_final {
+                return Err(ApiError::invalid("a task can only be discarded into a final stage"));
+            }
+            reject_occupied(&task)?;
+
+            let at = now();
+            conn.execute(
+                "UPDATE tasks SET stage_id = ?1, work_state = 'open', hold_reason = NULL,
+                    discarded_at = ?2, discard_reason = ?3, discarded_by = ?4,
+                    version = version + 1, updated_at = ?2 WHERE id = ?5",
+                params![request.to_stage_id, at, reason, actor.id, task.id],
+            )?;
+            emit(conn, task_event(&task, &actor, "stage", "task.discarded", json!({
+                "key": task.key(),
+                "reason": reason,
+                "from": { "id": task.stage.id, "name": task.stage.name },
+                "to": { "id": request.to_stage_id, "name": target },
+                "previous_work_state": task.work_state,
+            })))?;
+            tracing::info!(task = %task.id, actor = %actor.id, to_stage = %request.to_stage_id, "discarded task");
+            refresh_claimable(conn, &actor, &with_dependents(conn, &task.id)?)?;
+            Ok(Json(to_view(&load_task(conn, &task.id)?, &actor)?))
+        })
+        .await
+}
+
+/// 破棄を取り消し、これから仕事を行う段階へ戻す。
+pub async fn restore(
+    State(state): State<AppState>,
+    actor: Actor,
+    Path(reference): Path<String>,
+    ApiJson(request): ApiJson<DiscardRequest>,
+) -> ApiResult<Json<TaskView>> {
+    let reason = required_text("reason", &request.reason, MAX_DISCARD_REASON_CHARS)?;
+    state
+        .db
+        .write(move |conn| {
+            let task = resolve_task(conn, &actor, &reference)?;
+            actor.require(&task.project_id, Permission::Edit)?;
+            check_version(&task, request.version)?;
+            let Some(discard) = &task.discard else {
+                return Err(ApiError::conflict("task_not_discarded", "this task is not discarded"));
+            };
+            let (target, is_final) = stage_in_project(conn, &task, &request.to_stage_id)?;
+            if is_final {
+                return Err(ApiError::invalid("a task can only be restored into a non-final stage"));
+            }
+
+            conn.execute(
+                "UPDATE tasks SET stage_id = ?1, work_state = 'open', hold_reason = NULL,
+                    discarded_at = NULL, discard_reason = NULL, discarded_by = NULL,
+                    version = version + 1, updated_at = ?2 WHERE id = ?3",
+                params![request.to_stage_id, now(), task.id],
+            )?;
+            emit(conn, task_event(&task, &actor, "stage", "task.restored", json!({
+                "key": task.key(),
+                "reason": reason,
+                "discard_reason": discard.reason,
+                "from": { "id": task.stage.id, "name": task.stage.name },
+                "to": { "id": request.to_stage_id, "name": target },
+            })))?;
+            tracing::info!(task = %task.id, actor = %actor.id, to_stage = %request.to_stage_id, "restored discarded task");
+            refresh_claimable(conn, &actor, &with_dependents(conn, &task.id)?)?;
+            Ok(Json(to_view(&load_task(conn, &task.id)?, &actor)?))
+        })
+        .await
+}
+
 pub async fn move_stage(
     State(state): State<AppState>,
     actor: Actor,
@@ -529,14 +663,8 @@ pub async fn move_stage(
             };
             actor.require(&task.project_id, permission)?;
             check_version(&task, request.version)?;
-
-            if let Some(holder) = &task.occupant {
-                return Err(ApiError::conflict(
-                    "task_occupied",
-                    format!("{} holds this work; it must be completed or released first", holder.display_name),
-                )
-                .details(json!({ "occupant": holder })));
-            }
+            reject_discarded(&task)?;
+            reject_occupied(&task)?;
             if require_done && task.work_state != "done" {
                 return Err(ApiError::conflict(
                     "transition_condition_unmet",

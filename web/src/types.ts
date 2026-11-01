@@ -79,7 +79,7 @@ export interface Work {
   acquired_at: string | null;
   claim_id: string | null;
   hold_reason: string | null;
-  blockers: { id: string; key: string; reason: string }[];
+  blockers: { id: string; key: string; reason: string; discarded: boolean }[];
   hidden_blockers: number;
 }
 
@@ -100,6 +100,7 @@ export interface Task {
   version: number;
   created_at: string;
   updated_at: string;
+  discard: Discard | null;
   work: Work;
 }
 
@@ -133,6 +134,12 @@ export interface HistoryEvent {
   delegated_token_id: string | null;
   data: Record<string, unknown>;
   created_at: string;
+}
+
+export interface Discard {
+  discarded_at: string;
+  reason: string;
+  discarded_by: PrincipalRef | null;
 }
 
 export interface TaskContext {

@@ -13,6 +13,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_project_relations.sql"),
     include_str!("../migrations/0003_token_delegation.sql"),
     include_str!("../migrations/0004_resources.sql"),
+    include_str!("../migrations/0005_task_discard.sql"),
 ];
 
 /// 単一コネクションを直列に使う。書き込みは `BEGIN IMMEDIATE` なので、

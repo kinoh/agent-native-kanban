@@ -370,6 +370,18 @@ pub async fn update_stage(
                 )?;
             }
             if let Some(is_final) = request.is_final {
+                // 破棄されたタスクは最終段階にある前提で、依存元のブロックもこの前提に立つ。
+                let discarded: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE stage_id = ?1 AND discarded_at IS NOT NULL",
+                    [&id],
+                    |row| row.get(0),
+                )?;
+                if !is_final && discarded > 0 {
+                    return Err(ApiError::conflict(
+                        "stage_has_discarded_tasks",
+                        format!("{discarded} discarded tasks are in this stage; restore them first"),
+                    ));
+                }
                 conn.execute("UPDATE stages SET is_final = ?1 WHERE id = ?2", params![is_final, id])?;
             }
             emit(conn, project_event(&actor.org_id, &project_id, &actor.id, "stage.updated", json!({
