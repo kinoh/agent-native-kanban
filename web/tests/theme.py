@@ -65,7 +65,12 @@ def api_route(state):
                 return
             body = {"tasks": [task()], "next_cursor": None}
         elif path == "/tasks/THEME-1/context": body = {"task": task(), "parent": None, "children": [], "dependencies": [], "dependents": [], "links": [], "comments": [], "artifacts": [], "history": []}
-        elif path == "/principals": body = {"principals": [human, agent]}
+        elif path == "/principals/work":
+            work = {"key": "THEME-1", "title": "配色を確認する", "project": {"id": project["id"], "key": project["key"], "name": project["name"]}, "activity": "working", "acquired_at": "2026-11-01T00:00:00.000Z"}
+            body = {"principals": [{**human, "work": []}, {**agent, "work": [work]}]}
+        elif path == "/resources":
+            hold = {"id": "hold-1", "reason": "受け入れテストを実行する", "acquired_at": "2026-11-01T00:00:00.000Z", "holder": {"id": agent["id"], "kind": agent["kind"], "display_name": agent["display_name"], "status": agent["status"]}}
+            body = {"resources": [{"id": "resource-1", "org_id": "org-1", "project_id": None, "name": "テスト環境", "description": "統合テスト用の環境", "capacity": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "holds": [hold]}]}
         elif path == "/signup-links": body = {"signup_links": []}
         elif path.startswith("/events/stream?"):
             response.fulfill(status=200, content_type="text/event-stream", body="")
@@ -121,7 +126,7 @@ try:
             context.route("**/api/v1/**", api_route(state))
             context.add_init_script("""(() => { if (localStorage.getItem('agent-native-kanban.theme') === null) localStorage.setItem('agent-native-kanban.theme', '""" + saved_theme + """'); window.EventSource = class { constructor() {} close() {} }; })();""")
             page = context.new_page(); prefix = f"{saved_theme}-"
-            for path, ready, name in [("/projects/THEME/board", "[data-task=THEME-1]", "board"), ("/projects/THEME/list", "tbody tr", "list"), ("/tasks/THEME-1", "[aria-label=タイトル]", "task-detail"), ("/inbox", "h1", "inbox"), ("/projects/THEME/settings", ".settings-table", "project-settings"), ("/admin", "h1", "admin"), ("/settings", "h1", "account-settings"), ("/signup/test-token", "h1", "signup")]:
+            for path, ready, name in [("/projects/THEME/board", "[data-task=THEME-1]", "board"), ("/resources", ".resource-card", "resources"), ("/projects/THEME/list", "tbody tr", "list"), ("/tasks/THEME-1", "[aria-label=タイトル]", "task-detail"), ("/inbox", "h1", "inbox"), ("/projects/THEME/settings", ".settings-table", "project-settings"), ("/admin", "h1", "admin"), ("/settings", "h1", "account-settings"), ("/signup/test-token", "h1", "signup")]:
                 verify_page(page, path, ready, saved_theme, f"{prefix}{name}.png")
             verify_page(page, "/projects", "h1", saved_theme, f"{prefix}projects.png")
             page.get_by_role("button", name="プロジェクトを作成").click(); page.get_by_role("dialog", name="プロジェクトを作成").wait_for()
