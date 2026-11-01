@@ -22,6 +22,41 @@ interface Grant {
 
 type TokenState = "有効" | "失効済み" | "期限切れ" | "親トークンが無効";
 
+interface PrincipalTreeRow {
+  principal: PrincipalWork;
+  depth: number;
+  creator: PrincipalWork | null;
+}
+
+function principalTree(principals: PrincipalWork[]): PrincipalTreeRow[] {
+  const byId = new Map(principals.map((principal) => [principal.id, principal]));
+  const children = new Map<string, PrincipalWork[]>();
+  const roots: PrincipalWork[] = [];
+
+  for (const principal of principals) {
+    if (!principal.created_by || !byId.has(principal.created_by) || principal.created_by === principal.id) {
+      roots.push(principal);
+      continue;
+    }
+    const siblings = children.get(principal.created_by) ?? [];
+    siblings.push(principal);
+    children.set(principal.created_by, siblings);
+  }
+
+  const rows: PrincipalTreeRow[] = [];
+  const visited = new Set<string>();
+  const visit = (principal: PrincipalWork, depth: number, creator: PrincipalWork | null) => {
+    if (visited.has(principal.id)) return;
+    visited.add(principal.id);
+    rows.push({ principal, depth, creator });
+    for (const child of children.get(principal.id) ?? []) visit(child, depth + 1, principal);
+  };
+
+  for (const principal of roots) visit(principal, 0, null);
+  for (const principal of principals) visit(principal, 0, null);
+  return rows;
+}
+
 function ownState(token: ApiToken, now: string): TokenState {
   if (token.revoked_at) return "失効済み";
   return token.expires_at !== null && token.expires_at <= now ? "期限切れ" : "有効";
@@ -352,6 +387,7 @@ export function Admin({ session }: { session: Session }) {
   };
 
   const now = new Date().toISOString();
+  const principalRows = principalTree(principals);
   return (
     <div className="page">
       <header className="page-header">
@@ -420,9 +456,15 @@ export function Admin({ session }: { session: Session }) {
           <tr><th>名前</th><th>種別</th><th>メール</th><th>状態</th><th>作業</th><th /></tr>
         </thead>
         <tbody>
-          {principals.map((principal) => (
-            <tr key={principal.id}>
-              <td className="principal"><Avatar principal={principal} /> {principal.display_name}</td>
+          {principalRows.map(({ principal, depth, creator }) => (
+            <tr key={principal.id} data-principal={principal.id}>
+              <td className="principal-cell">
+                <span className="principal principal-tree" style={{ paddingInlineStart: `${depth * 18}px` }}>
+                  {creator && <span className="principal-creator" aria-label={`作成元 ${creator.display_name}`}>作成元</span>}
+                  <Avatar principal={principal} />
+                  {principal.display_name}
+                </span>
+              </td>
               <td>{principal.kind === "agent" ? "エージェント" : "人間"}</td>
               <td>{principal.email ?? "—"}</td>
               <td>{{ active: "有効", disabled: "無効", deleted: "削除済み" }[principal.status]}</td>

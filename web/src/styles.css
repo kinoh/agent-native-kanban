@@ -173,6 +173,8 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .task-table th, .settings-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .task-table td, .settings-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-2); vertical-align: middle; }
 .principal-cell { display: table-cell; }
+.principal-tree { min-width: max-content; }
+.principal-creator { color: var(--muted); font-size: 10px; }
 .principal-work { list-style: none; margin: 0; padding: 0; }
 .principal-work li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
 .task-table tbody tr { cursor: pointer; }

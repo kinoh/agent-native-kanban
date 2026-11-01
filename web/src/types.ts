@@ -9,6 +9,7 @@ export interface PrincipalRef {
 
 export interface Principal extends PrincipalRef {
   description: string;
+  created_by: string | null;
   created_at: string;
   email?: string | null;
 }

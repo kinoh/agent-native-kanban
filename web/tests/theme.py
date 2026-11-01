@@ -32,8 +32,11 @@ class Handler(SimpleHTTPRequestHandler):
 stage = {"id": "stage-1", "name": "実装", "position": 0, "requires_work": True, "claim_permission": "claim", "is_final": False}
 project = {"id": "project-1", "key": "THEME", "name": "テーマ確認", "description": "", "stages": [stage], "transition_rules": []}
 me = {"id": "human-1", "kind": "human", "display_name": "Theme User", "email": "theme@example.test", "organization": {"id": "org-1", "name": "Theme Org"}, "is_org_admin": True, "grants": [{"project_id": None, "permission": "admin"}]}
-human = {"id": "human-1", "kind": "human", "display_name": "Theme User", "status": "active", "description": "", "created_at": "2026-11-01T00:00:00.000Z", "email": "theme@example.test"}
-agent = {"id": "agent-1", "kind": "agent", "display_name": "Theme Agent", "status": "active", "description": "", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+human = {"id": "human-1", "kind": "human", "display_name": "Theme User", "status": "active", "description": "", "created_by": None, "created_at": "2026-11-01T00:00:00.000Z", "email": "theme@example.test"}
+agent = {"id": "agent-1", "kind": "agent", "display_name": "Theme Agent", "status": "active", "description": "", "created_by": "human-1", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+agent_child = {"id": "agent-2", "kind": "agent", "display_name": "Theme Builder", "status": "active", "description": "", "created_by": "agent-1", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+missing_creator = {"id": "agent-3", "kind": "agent", "display_name": "Theme Former", "status": "active", "description": "", "created_by": "deleted-principal", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
+independent = {"id": "human-2", "kind": "human", "display_name": "Theme Independent", "status": "active", "description": "", "created_by": None, "created_at": "2026-11-01T00:00:00.000Z", "email": "independent@example.test"}
 
 
 def task():
@@ -65,10 +68,10 @@ def api_route(state):
                 return
             body = {"tasks": [task()], "next_cursor": None}
         elif path == "/tasks/THEME-1/context": body = {"task": task(), "parent": None, "children": [], "dependencies": [], "dependents": [], "links": [], "comments": [], "artifacts": [], "history": []}
-        elif path == "/principals": body = {"principals": [human, agent]}
+        elif path == "/principals": body = {"principals": [human, agent, agent_child, missing_creator, independent]}
         elif path == "/principals/work":
             work = {"key": "THEME-1", "title": "配色を確認する", "project": {"id": project["id"], "key": project["key"], "name": project["name"]}, "activity": "working", "acquired_at": "2026-11-01T00:00:00.000Z"}
-            body = {"principals": [{**human, "work": []}, {**agent, "work": [work]}]}
+            body = {"principals": [{**human, "work": []}, {**agent, "work": [work, {**work, "key": "THEME-2", "title": "作成関係を確認する"}]}, {**agent_child, "work": []}, {**missing_creator, "work": []}, {**independent, "work": []}]}
         elif path == "/resources":
             hold = {"id": "hold-1", "reason": "受け入れテストを実行する", "acquired_at": "2026-11-01T00:00:00.000Z", "holder": {"id": agent["id"], "kind": agent["kind"], "display_name": agent["display_name"], "status": agent["status"]}}
             body = {"resources": [{"id": "resource-1", "org_id": "org-1", "project_id": None, "name": "テスト環境", "description": "統合テスト用の環境", "capacity": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "holds": [hold]}]}
@@ -112,6 +115,16 @@ def verify_page(page, path, ready, theme, screenshot):
     assert page.locator("html").get_attribute("data-theme") == theme
     assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == theme
     assert_readable(page, screenshot)
+    if path == "/admin":
+        rows = page.locator("table.settings-table").nth(1).locator("tbody tr")
+        assert rows.count() == 5
+        assert rows.evaluate_all("rows => rows.map(row => row.dataset.principal)") == ["human-1", "agent-1", "agent-2", "agent-3", "human-2"]
+        assert page.get_by_label("作成元 Theme User").count() == 1
+        assert page.get_by_label("作成元 Theme Agent").count() == 1
+        assert "委譲" not in "".join(rows.all_inner_texts())
+        alignment = rows.nth(1).locator("td").evaluate_all("cells => cells.map(cell => { const box = cell.getBoundingClientRect(); return { center: box.y + box.height / 2, height: box.height }; })")
+        assert alignment[0]["height"] > 40
+        assert all(abs(cell["center"] - alignment[0]["center"]) < .5 for cell in alignment[1:])
     page.screenshot(path=str(SCREENSHOTS / screenshot), full_page=True)
 
 
