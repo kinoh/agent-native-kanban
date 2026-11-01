@@ -120,9 +120,69 @@ Use `POST /tasks/{task}/comments` with `kind` and `body` for comments, progress,
 
 Use `PATCH /me` with `{ "display_name":"New name" }` for a human self-name change, `PUT /me/password` with `{ "current_password":"…", "new_password":"…" }` for a human password change, and `PATCH /principals/{id}` with `{ "display_name":"New name" }` for an organization-admin rename. Passwords must be at least 12 characters. A successful self password change keeps the acting cookie session and invalidates other sessions.
 
-## Create, update, and move tasks
+## Create a project, stages, and detailed tasks
 
-Creating a task requires `create`; assigning people also requires `assign`. Updating a task requires its current `version` so conflicting edits return `409 version_conflict` with the current version.
+Creating a project requires organization administrator authority. `POST /projects` requires `key`, `name`, and a nonempty `stages` array. A project key is 1–10 uppercase letters or digits and starts with a letter. `description` is optional and is the project's purpose/repository overview (at most 2000 characters).
+
+Every stage object, both in `POST /projects` and `POST /projects/{project-id}/stages`, requires all four fields below. `claim_permission` is exactly one of `claim`, `review`, or `approve`; `requires_work` and `is_final` are JSON booleans. A project must start with at least one stage. The response to either successful creation is `201 Created` with the complete project JSON body: its `id`, `key`, `name`, `description`, and a `stages` array. Retain the returned stage `id` values for tasks.
+
+```sh
+# This creates the Score Pilot project and its initial stages.
+curl -H "$H" -H "$J" -d '{
+  "key":"SCORE",
+  "name":"Score Pilot",
+  "description":"Evaluate scoring changes with reproducible evidence.",
+  "stages":[
+    {"name":"Backlog","requires_work":false,"claim_permission":"claim","is_final":false},
+    {"name":"Build","requires_work":true,"claim_permission":"claim","is_final":false},
+    {"name":"Done","requires_work":false,"claim_permission":"claim","is_final":true}
+  ]
+}' "$API/projects"
+
+# Add a review stage later if the returned project id is <project-id>.
+curl -H "$H" -H "$J" -d '{
+  "name":"Review","requires_work":true,"claim_permission":"review","is_final":false
+}' "$API/projects/<project-id>/stages"
+```
+
+Creating a task requires `create`; assigning people also requires `assign`. `POST /tasks` requires `project_id` and nonblank `title`. It creates the task in `stage_id`, or in the project's first stage if `stage_id` is omitted. `description`, `purpose`, and `acceptance_criteria` are optional text fields; send them to make the work independently actionable. `priority` is optional and is one of `urgent`, `high`, `medium`, `low`, or `none` (the default is `none`). `parent` is optional and names an ID or key of an existing task in the same project. A successful task creation is `201 Created` with a task JSON body, including `id`, stable `key`, `purpose`, `acceptance_criteria`, `priority`, `parent_id`, `stage`, and `version`.
+
+```sh
+# Substitute the project id and Build stage id returned above. This returns SCORE-1.
+curl -H "$H" -H "$J" -d '{
+  "project_id":"<project-id>",
+  "stage_id":"<build-stage-id>",
+  "title":"Define scoring inputs",
+  "purpose":"Make the scoring inputs reviewable.",
+  "acceptance_criteria":"Inputs and their source are recorded.",
+  "priority":"medium"
+}' "$API/tasks"
+
+# A child task may use its parent's returned key. This returns SCORE-2.
+curl -H "$H" -H "$J" -d '{
+  "project_id":"<project-id>",
+  "stage_id":"<build-stage-id>",
+  "title":"Implement score import",
+  "purpose":"Load the reviewed scoring inputs.",
+  "acceptance_criteria":"A supplied input produces the recorded score.",
+  "priority":"high",
+  "parent":"SCORE-1"
+}' "$API/tasks"
+```
+
+Add a dependency after both tasks exist. `depends_on` and nonblank `reason` are required; the referenced task must be in the same project. A successful add is `201 Created` with no response body. Read `GET /tasks/{task}/context` to see the recorded dependency.
+
+```sh
+# SCORE-2 cannot be claimed until SCORE-1 reaches a final stage.
+curl -i -H "$H" -H "$J" -d '{
+  "depends_on":"SCORE-1",
+  "reason":"Import needs the reviewed input definition."
+}' "$API/tasks/SCORE-2/dependencies"
+```
+
+## Update and move tasks
+
+Updating a task requires its current `version` so conflicting edits return `409 version_conflict` with the current version.
 
 ```sh
 curl -H "$H" -H "$J" -d '{"project_id":"<project-id>","stage_id":"<stage-id>","title":"Implement guide"}' "$API/tasks"
