@@ -31,16 +31,21 @@ project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','s
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
     return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','work':work}
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'principal_work_changed':False}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 def principal_work():
+    agent_work=[
+        {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'claimed','acquired_at':'2026-11-01T00:00:00.000Z'},
+        {'key':'DEV-2','title':'Task 2','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'working','acquired_at':'2026-11-01T01:00:00.000Z'},
+    ]
+    if state['principal_work_changed']:
+        agent_work=[
+            {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'paused','acquired_at':'2026-11-01T00:00:00.000Z'},
+        ]
     return {'principals':[
         {**human,'work':[]},
-        {**agent,'work':[
-            {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'claimed','acquired_at':'2026-11-01T00:00:00.000Z'},
-            {'key':'DEV-2','title':'Task 2','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'working','acquired_at':'2026-11-01T01:00:00.000Z'},
-        ]},
+        {**agent,'work':agent_work},
     ]}
 FUTURE='2099-01-01T00:00:00.000Z'
 def token(id,name,**fields):
@@ -210,9 +215,12 @@ try:
         assert '作業中' in agent_row.inner_text()
         assert page.locator('tr').filter(has_text='Auditor').get_by_text('作業なし',exact=True).count()==1
         requests.clear()
+        state['principal_work_changed']=True
         with page.expect_response(lambda r:r.url.endswith('/api/v1/principals/work')):
             page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
-        results['principal_work']={'multiple_claims':2,'activities':['claimed','working'],'live_reload':'/principals/work' in requests}
+        agent_row.get_by_text('一時停止',exact=True).wait_for()
+        assert agent_row.get_by_role('link',name='DEV-2 Task 2',exact=True).count()==0
+        results['principal_work']={'multiple_claims':2,'activities':['claimed','working','paused'],'live_reload':'/principals/work' in requests,'stale_work_removed':True}
         assert results['principal_work']['live_reload']
         page.get_by_role('button',name='権限',exact=True).last.click()
         rows=page.get_by_role('list',name='発行済みのトークン').get_by_role('listitem')
