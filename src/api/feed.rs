@@ -63,11 +63,13 @@ fn event_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventView> {
     })
 }
 
-/// プロジェクトに属するイベントは閲覧権限のある主体に、組織全体のものは組織管理者にだけ見せる。
+/// プロジェクトに属するイベントは閲覧権限のある主体に配信する。リソースの
+/// 組織全体イベントだけは、タスク限定でない同組織の主体にも配信する。
 fn visible(actor: &Actor, event: &EventView) -> bool {
     match (&event.project_id, &event.task_id) {
         (Some(project_id), Some(task_id)) => actor.can_view_task(project_id, task_id),
         (Some(project_id), None) => actor.sees_whole_project(project_id),
+        (None, _) if event.kind.starts_with("resource.") => actor.task_scope.is_none(),
         (None, _) => actor.is_org_admin(),
     }
 }

@@ -22,7 +22,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.path='/index.html'
         super().do_GET()
     def log_message(self,*args): pass
-server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+server=ThreadingHTTPServer(('127.0.0.1',18813),Handler)
 threading.Thread(target=server.serve_forever,daemon=True).start()
 base=f'http://127.0.0.1:{server.server_port}'
 stage={'id':'stage-1','name':'Implement','position':0,'requires_work':True,'claim_permission':'claim','is_final':False}
@@ -43,6 +43,9 @@ tokens=[
     token('dead-token-cccccccc','revoked',parent_token_id='root-token-aaaaaaaa',expires_at=FUTURE,revoked_at='2026-11-01T00:00:00.000Z',scopes=[{'project_id':project['id'],'permission':'claim'}],tasks=[],task_keys=[]),
     token('kids-token-dddddddd','grandchild',parent_token_id='dead-token-cccccccc',expires_at=FUTURE,scopes=[{'project_id':project['id'],'permission':'claim'}],tasks=[],task_keys=[]),
 ]
+resources=[]
+def resource(id,name,capacity,holds=[]):
+    return {'id':id,'org_id':'org-1','project_id':None,'name':name,'description':'shared test resource','capacity':capacity,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','holds':holds}
 pending=[]
 requests=[]
 def route(r):
@@ -86,7 +89,36 @@ def route(r):
         match['revoked_at']='2026-11-01T00:00:00.000Z'
         r.fulfill(status=204)
         return
-    if path=='/me':
+    if path=='/resources' and r.request.method=='POST':
+        body=r.request.post_data_json
+        created=resource('resource-1',body['name'],body['capacity'])
+        created['description']=body.get('description','')
+        resources[:] = [created]
+        r.fulfill(status=201,content_type='application/json',body=json.dumps(created))
+        return
+    if path=='/resources': body={'resources':resources}
+    elif path.startswith('/resources/resource-1/acquire'):
+        body=r.request.post_data_json
+        resources[0]['holds']=[{'id':'hold-1','reason':body['reason'],'acquired_at':'2026-11-01T00:00:00.000Z','holder':{'id':'human-1','kind':'human','display_name':state['display_name'],'status':'active'}}]
+        r.fulfill(status=200,content_type='application/json',body=json.dumps({'hold_id':'hold-1','resource':resources[0]}))
+        return
+    elif path.startswith('/resources/resource-1/release'):
+        resources[0]['holds']=[]
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(resources[0]))
+        return
+    elif path.startswith('/resources/resource-1/revoke'):
+        resources[0]['holds']=[]
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(resources[0]))
+        return
+    elif path=='/resources/resource-1' and r.request.method=='PATCH':
+        resources[0].update(r.request.post_data_json)
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(resources[0]))
+        return
+    elif path=='/resources/resource-1' and r.request.method=='DELETE':
+        resources.clear()
+        r.fulfill(status=204)
+        return
+    elif path=='/me':
         if state['refresh_failures']:
             state['refresh_failures']-=1
             r.fulfill(status=500,content_type='application/json',body=json.dumps({'error':{'code':'internal_error','message':'internal server error'}}))
@@ -289,6 +321,46 @@ try:
         page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).wait_for()
         assert page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).count()==1
         results['admin_renames']={'organization_refresh':state['organization_name'],'agent_refresh':agent['display_name'],'self_refresh':state['display_name']}
+        page.goto(base+'/resources')
+        page.get_by_role('heading',name='リソース',exact=True).wait_for()
+        page.get_by_role('button',name='リソースを追加',exact=True).click()
+        dialog=page.get_by_role('dialog',name='リソースを追加')
+        dialog.get_by_label('名前').fill('test environment')
+        dialog.get_by_label('説明').fill('browser check')
+        dialog.get_by_label('上限').fill('1')
+        with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/api/v1/resources')):
+            dialog.get_by_role('button',name='リソースを追加',exact=True).click()
+        page.get_by_role('heading',name='test environment',exact=True).wait_for()
+        reason=page.get_by_role('textbox',name='test environmentを確保する理由')
+        reason.fill('browser run')
+        with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/acquire')):
+            page.get_by_role('button',name='確保',exact=True).click()
+        page.get_by_text('browser run',exact=True).wait_for()
+        with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/release')):
+            page.get_by_role('button',name='解放',exact=True).click()
+        page.locator('.resource-hold').wait_for(state='detached')
+        resources[0]['holds']=[{'id':'hold-external','reason':'external run','acquired_at':'2026-11-01T00:00:00.000Z','holder':agent}]
+        with page.expect_response(lambda r:r.url.endswith('/api/v1/resources')):
+            page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
+        page.get_by_text('external run',exact=True).wait_for()
+        page.get_by_role('button',name='解除',exact=True).click()
+        page.get_by_label('解除理由').fill('browser cleanup')
+        with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/revoke')):
+            page.get_by_role('button',name='解除する',exact=True).click()
+        page.locator('.resource-hold').wait_for(state='detached')
+        page.get_by_role('button',name='編集',exact=True).click()
+        dialog=page.get_by_role('dialog',name='リソースを編集')
+        dialog.get_by_label('名前').fill('renamed environment')
+        with page.expect_response(lambda r:r.request.method=='PATCH' and r.url.endswith('/resources/resource-1')):
+            dialog.get_by_role('button',name='変更を保存',exact=True).click()
+        page.get_by_role('heading',name='renamed environment',exact=True).wait_for()
+        page.once('dialog',lambda dialog:dialog.accept())
+        with page.expect_response(lambda r:r.request.method=='DELETE' and r.url.endswith('/resources/resource-1')):
+            page.get_by_role('button',name='削除',exact=True).click()
+        page.locator('.resource-card').wait_for(state='detached')
+        page.screenshot(path=str(STATE/'resources.png'))
+        results['resources']={'created':True,'acquired_and_released':True,'external_hold_reloaded':True,'revoked':True,'edited':True,'deleted':page.locator('.resource-card').count()==0}
+        assert results['resources']['deleted']
         state['is_org_admin']=False
         page.goto(base+'/projects/DEV/board')
         page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).wait_for()

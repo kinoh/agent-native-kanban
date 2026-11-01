@@ -4,6 +4,7 @@ pub mod feed;
 pub mod guide;
 pub mod identity;
 pub mod projects;
+pub mod resources;
 pub mod tasks;
 pub mod work;
 pub mod collab;
@@ -139,6 +140,14 @@ fn api_routes() -> Router<AppState> {
         .route("/projects/{id}/stages", post(projects::add_stage))
         .route("/projects/{id}/transition-rules", put(projects::put_rules))
         .route("/stages/{id}", patch(projects::update_stage).delete(projects::delete_stage))
+        .route("/resources", get(resources::list).post(resources::create))
+        .route(
+            "/resources/{id}",
+            get(resources::get).patch(resources::update).delete(resources::delete),
+        )
+        .route("/resources/{id}/acquire", post(resources::acquire))
+        .route("/resources/{id}/release", post(resources::release))
+        .route("/resources/{id}/revoke", post(resources::revoke))
         .route("/tasks", get(tasks::list).post(tasks::create))
         .route("/tasks/{task}", get(tasks::get).patch(tasks::update))
         .route("/tasks/{task}/context", get(tasks::context))

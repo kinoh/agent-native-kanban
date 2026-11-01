@@ -12,6 +12,7 @@ import { Login } from "./views/Login";
 import { Palette } from "./views/Palette";
 import { Projects } from "./views/Projects";
 import { ProjectSettings } from "./views/ProjectSettings";
+import { Resources } from "./views/Resources";
 import { Signup } from "./views/Signup";
 import { TaskDetail } from "./views/TaskDetail";
 import { useLiveChanges } from "./live";
@@ -148,6 +149,8 @@ function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloa
     content = <TaskDetail key={taskMatch[1]} reference={taskMatch[1]} session={session} />;
   } else if (path === "/inbox") {
     content = <Inbox />;
+  } else if (path === "/resources") {
+    content = <Resources session={session} />;
   } else if (path === "/admin" && me.is_org_admin) {
     content = <Admin session={session} />;
   } else if (path === "/settings" && me.kind === "human") {
@@ -171,6 +174,7 @@ function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloa
         </button>
         <NavLink to="/inbox" label="受信箱" current={path} badge={inbox} />
         <NavLink to="/projects" label="プロジェクト" current={path === "/" ? "/projects" : path} />
+        <NavLink to="/resources" label="リソース" current={path} />
         <div className="nav-group">
           {projects.map((project) => (
             <NavLink key={project.id} to={`/projects/${project.key}/board`} label={project.name} current={path} />
