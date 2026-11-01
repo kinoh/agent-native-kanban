@@ -465,7 +465,7 @@ try:
         assert dialog.get_by_label('移動先の最終段階').input_value()=='stage-final'
         dialog.get_by_label('理由').fill('不要になった')
         dialog.get_by_role('button',name='破棄する',exact=True).click()
-        page.get_by_text('不要になった',exact=True).wait_for(state='attached')
+        page.locator('.discard-note').get_by_text('不要になった').wait_for()
         assert state['discard_requests']==[('discard','stage-final')]
         assert page.locator('.title-input').evaluate('e=>getComputedStyle(e).textDecorationLine')=='line-through'
         assert page.locator('.stage-button').is_disabled()
