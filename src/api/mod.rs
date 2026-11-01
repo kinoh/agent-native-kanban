@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod delegation;
 pub mod feed;
+pub mod guide;
 pub mod identity;
 pub mod projects;
 pub mod tasks;
@@ -110,11 +111,13 @@ async fn api_not_found() -> ApiError {
 
 fn api_routes() -> Router<AppState> {
     Router::new()
+        .route("/guide", get(guide::get))
         .route("/auth/login", post(identity::login))
         .route("/auth/logout", post(identity::logout))
         .route("/signup/{token}", get(identity::signup_info).post(identity::signup))
-        .route("/me", get(identity::me))
+        .route("/me", get(identity::me).patch(identity::update_me))
         .route("/me/password", put(identity::change_password))
+        .route("/organization", patch(identity::update_organization))
         .route("/me/inbox", get(collab::inbox))
         .route("/me/delegations", get(delegation::list).post(delegation::create))
         .route("/principals", get(admin::list_principals).post(admin::create_principal))

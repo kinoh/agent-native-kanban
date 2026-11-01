@@ -148,6 +148,134 @@ async fn password_login_and_change() {
 }
 
 #[tokio::test]
+async fn guide_is_public_markdown_and_other_api_data_stays_private() {
+    let app = App::new();
+    let response = app
+        .router
+        .clone()
+        .oneshot(Request::builder().uri("/api/v1/guide").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/markdown; charset=utf-8"
+    );
+    let guide = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    assert!(guide.contains("Authorization: Bearer"));
+    assert!(guide.contains("claim_id"));
+    assert!(guide.contains("work/complete"));
+    assert!(guide.contains("work/release"));
+    assert!(guide.contains("/tasks/{task}/stage"));
+
+    assert_eq!(app.get(&ANON, "/me").await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(app.get(&ANON, "/projects").await.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(app.get(&ANON, "/tasks").await.status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn organization_administrators_rename_only_their_organization_and_the_change_is_audited() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let other = app.organization("Other", "admin@other.test").await;
+    let member_link = link(&app, &admin, 1).await;
+    let member = app.signup(member_link["url"].as_str().unwrap(), "member@acme.test", "Member").await;
+    let before = app.get(&admin, "/me").await.body;
+
+    assert_eq!(
+        app.patch(&ANON, "/organization", json!({ "name": "Nope" })).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        app.patch(&member, "/organization", json!({ "name": "Nope" })).await.status,
+        StatusCode::FORBIDDEN
+    );
+    for name in ["   ".to_string(), "x".repeat(101)] {
+        let reply = app.patch(&admin, "/organization", json!({ "name": name })).await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", reply.body);
+    }
+
+    let renamed = app
+        .patch(&admin, "/organization", json!({ "name": "  Renamed Acme  " }))
+        .await;
+    assert_eq!(renamed.status, StatusCode::OK, "{:?}", renamed.body);
+    assert_eq!(renamed.body["id"], before["organization"]["id"]);
+    assert_eq!(renamed.body["name"], "Renamed Acme");
+    let current = app.get(&admin, "/me").await.body;
+    assert_eq!(current["organization"]["id"], before["organization"]["id"]);
+    assert_eq!(current["organization"]["name"], "Renamed Acme");
+
+    let other_renamed = app.patch(&other, "/organization", json!({ "name": "Other renamed" })).await;
+    assert_eq!(other_renamed.status, StatusCode::OK);
+    assert_eq!(app.get(&admin, "/me").await.body["organization"]["name"], "Renamed Acme");
+
+    let events = app.get(&admin, "/events?after=0").await.body;
+    let event = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["type"] == "organization.updated")
+        .unwrap();
+    assert_eq!(event["actor"]["id"], admin.id.as_str());
+    assert_eq!(event["data"]["organization_id"], before["organization"]["id"]);
+    assert_eq!(event["data"]["name"], json!({ "from": "Acme", "to": "Renamed Acme" }));
+}
+
+#[tokio::test]
+async fn human_can_rename_only_their_own_display_name_and_the_change_is_audited() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let project = app.project(&admin, "ACME").await;
+    let member_link = link(&app, &admin, 1).await;
+    let member = app.signup(member_link["url"].as_str().unwrap(), "member@acme.test", "Member").await;
+    let before = app.get(&member, "/me").await.body;
+
+    assert_eq!(
+        app.patch(&ANON, "/me", json!({ "display_name": "Nope" })).await.status,
+        StatusCode::UNAUTHORIZED
+    );
+    for body in [json!({ "display_name": "   " }), json!({ "display_name": "x".repeat(101) }), json!({ "display_name": "ok", "email": "other@acme.test" })] {
+        let reply = app.patch(&member, "/me", body).await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", reply.body);
+    }
+
+    let renamed = app
+        .patch(&member, "/me", json!({ "display_name": "  Updated member  " }))
+        .await;
+    assert_eq!(renamed.status, StatusCode::OK, "{:?}", renamed.body);
+    assert_eq!(renamed.body["id"], before["id"]);
+    assert_eq!(renamed.body["display_name"], "Updated member");
+    assert_eq!(renamed.body["email"], before["email"]);
+    assert_eq!(renamed.body["organization"], before["organization"]);
+    assert_eq!(app.get(&member, "/me").await.body["display_name"], "Updated member");
+
+    let admin_rename = app
+        .patch(&admin, &format!("/principals/{}", member.id), json!({ "display_name": "Admin renamed" }))
+        .await;
+    assert_eq!(admin_rename.status, StatusCode::OK);
+    assert_eq!(app.get(&member, "/me").await.body["display_name"], "Admin renamed");
+
+    let agent = app.agent(&admin, "Agent", worker_grants(&project)).await;
+    assert_eq!(
+        app.patch(&agent, "/me", json!({ "display_name": "Agent renamed" })).await.status,
+        StatusCode::FORBIDDEN
+    );
+    let events = app.get(&admin, "/events?after=0").await.body;
+    let event = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| {
+            event["type"] == "principal.updated"
+                && event["data"]["principal_id"] == member.id.as_str()
+                && event["data"]["display_name"]["to"] == "Updated member"
+        })
+        .unwrap();
+    assert_eq!(event["actor"]["id"], member.id.as_str());
+    assert_eq!(event["data"]["display_name"], json!({ "from": "Member", "to": "Updated member" }));
+}
+
+#[tokio::test]
 async fn repeated_login_failures_are_throttled() {
     let app = App::new();
     app.organization("Acme", "admin@acme.test").await;

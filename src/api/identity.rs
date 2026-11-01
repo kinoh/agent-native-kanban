@@ -263,28 +263,124 @@ pub async fn signup(
 pub async fn me(State(state): State<AppState>, actor: Actor) -> ApiResult<Json<Value>> {
     state
         .db
-        .read(move |conn| {
-            let (org_name, email): (String, Option<String>) = conn.query_row(
-                "SELECT o.name, c.email FROM organizations o
-                 LEFT JOIN human_credentials c ON c.principal_id = ?1 WHERE o.id = ?2",
+        .read(move |conn| Ok(Json(me_json(conn, &actor, &actor.display_name)?)))
+        .await
+}
+
+fn me_json(conn: &Connection, actor: &Actor, display_name: &str) -> ApiResult<Value> {
+    let (org_name, email): (String, Option<String>) = conn.query_row(
+        "SELECT o.name, c.email FROM organizations o
+         LEFT JOIN human_credentials c ON c.principal_id = ?1 WHERE o.id = ?2",
+        params![actor.id, actor.org_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let grants: Vec<Value> = actor
+        .grants
+        .iter()
+        .map(|g| json!({ "project_id": g.project_id, "permission": g.permission }))
+        .collect();
+    Ok(json!({
+        "id": actor.id,
+        "kind": actor.kind,
+        "display_name": display_name,
+        "email": email,
+        "organization": { "id": actor.org_id, "name": org_name },
+        "is_org_admin": actor.is_org_admin(),
+        "grants": grants,
+        "delegated_token_id": actor.delegated_token_id(),
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateMeRequest {
+    display_name: String,
+}
+
+/// Human principals can change only their own display name. Credentials and authority remain intact.
+pub async fn update_me(
+    State(state): State<AppState>,
+    actor: Actor,
+    ApiJson(request): ApiJson<UpdateMeRequest>,
+) -> ApiResult<Json<Value>> {
+    reject_delegated(&actor)?;
+    if actor.kind != "human" {
+        return Err(ApiError::forbidden("human"));
+    }
+    let display_name = required_text("display_name", &request.display_name, 100)?;
+    state
+        .db
+        .write(move |conn| {
+            let previous: String = conn.query_row(
+                "SELECT display_name FROM principals WHERE id = ?1 AND org_id = ?2 AND kind = 'human'",
                 params![actor.id, actor.org_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| row.get(0),
             )?;
-            let grants: Vec<Value> = actor
-                .grants
-                .iter()
-                .map(|g| json!({ "project_id": g.project_id, "permission": g.permission }))
-                .collect();
-            Ok(Json(json!({
-                "id": actor.id,
-                "kind": actor.kind,
-                "display_name": actor.display_name,
-                "email": email,
-                "organization": { "id": actor.org_id, "name": org_name },
-                "is_org_admin": actor.is_org_admin(),
-                "grants": grants,
-                "delegated_token_id": actor.delegated_token_id(),
-            })))
+            conn.execute(
+                "UPDATE principals SET display_name = ?1 WHERE id = ?2 AND org_id = ?3",
+                params![display_name, actor.id, actor.org_id],
+            )?;
+            emit(conn, EventInput {
+                org_id: &actor.org_id,
+                project_id: None,
+                task_id: None,
+                actor_id: Some(&actor.id),
+                delegated_token_id: None,
+                category: "admin",
+                kind: "principal.updated",
+                data: json!({
+                    "principal_id": actor.id,
+                    "display_name": { "from": previous, "to": display_name },
+                }),
+            })?;
+            Ok(Json(me_json(conn, &actor, &display_name)?))
+        })
+        .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateOrganizationRequest {
+    name: String,
+}
+
+/// An organization administrator may rename only the organization inferred from their credential.
+pub async fn update_organization(
+    State(state): State<AppState>,
+    actor: Actor,
+    ApiJson(request): ApiJson<UpdateOrganizationRequest>,
+) -> ApiResult<Json<Value>> {
+    actor.require_org_admin()?;
+    let name = required_text("name", &request.name, 100)?;
+    state
+        .db
+        .write(move |conn| {
+            let previous: String = conn.query_row(
+                "SELECT name FROM organizations WHERE id = ?1",
+                [&actor.org_id],
+                |row| row.get(0),
+            )?;
+            conn.execute(
+                "UPDATE organizations SET name = ?1 WHERE id = ?2",
+                params![name, actor.org_id],
+            )?;
+            emit(
+                conn,
+                EventInput {
+                    org_id: &actor.org_id,
+                    project_id: None,
+                    task_id: None,
+                    actor_id: Some(&actor.id),
+                    delegated_token_id: actor.delegated_token_id(),
+                    category: "admin",
+                    kind: "organization.updated",
+                    data: json!({
+                        "organization_id": actor.org_id,
+                        "name": { "from": previous, "to": name },
+                    }),
+                },
+            )?;
+            Ok(Json(json!({ "id": actor.org_id, "name": name })))
         })
         .await
 }

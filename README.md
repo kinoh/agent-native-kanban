@@ -71,6 +71,8 @@ Webの回帰検証は、PythonのPlaywrightとChromiumを用意した環境で�
 
 ベースパスは `/api/v1`。タスクは ID でも `DEV-12` 形式のキーでも指定できる。
 
+認証前のエージェント向けには `GET /api/v1/guide` が UTF-8 Markdown の利用ガイドを返す。トークンの入手・認証から、仕事の検索、取得、記録、完了、変更イベントまでの実行例はここから読める。
+
 失敗は次の形式で返す。
 
 ```json
@@ -113,8 +115,10 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 
 | 用途 | エンドポイント |
 |---|---|
+| 利用ガイド | `GET /guide`（認証不要、UTF-8 Markdown） |
 | 認証 | `POST /auth/login`、`POST /auth/logout`、`GET・POST /signup/{token}` |
-| 自分 | `GET /me`、`PUT /me/password`、`GET /me/inbox`（自分宛の質問・レビュー依頼） |
+| 自分 | `GET・PATCH /me`、`PUT /me/password`、`GET /me/inbox`（自分宛の質問・レビュー依頼） |
+| 組織 | `PATCH /organization`（組織管理者による自組織名の変更） |
 | 委譲 | `GET・POST /me/delegations`（認証に使ったトークンから発行した委譲トークン） |
 | 主体 | `GET・POST /principals`（POST はエージェントの登録）、`GET・PATCH・DELETE /principals/{id}`、`PUT /principals/{id}/password` |
 | 権限 | `GET・POST /principals/{id}/grants`、`DELETE /grants/{id}` |

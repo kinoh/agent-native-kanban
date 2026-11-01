@@ -265,6 +265,10 @@ async fn delegated_tokens_cannot_escape_through_credentials_or_admin_routes() {
     })).await;
     assert_eq!(password.status, StatusCode::FORBIDDEN);
 
+    let self_rename = app.patch(&child, "/me", json!({ "display_name": "escape" })).await;
+    assert_eq!(self_rename.status, StatusCode::FORBIDDEN);
+    assert_eq!(self_rename.code(), "delegated_token_restricted");
+
     assert_eq!(app.get(&child, "/me").await.body["is_org_admin"], false);
     assert_eq!(app.post(&child, "/principals", json!({ "display_name": "x" })).await.status, StatusCode::FORBIDDEN);
     let grant = app.post(&child, &format!("/principals/{}/grants", admin.id), json!({
