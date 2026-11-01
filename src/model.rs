@@ -77,6 +77,8 @@ pub struct WorkFacts {
 pub struct OccupantFacts {
     pub activity: String,
     pub status: String,
+    /// 閲覧者が現在の占有者本人か。取得可否は変えず、理由文だけを本人向けにする。
+    pub is_self: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,8 +144,11 @@ pub fn availability(facts: &WorkFacts) -> Availability {
 
     if let Some(occupant) = &facts.occupant {
         reasons.push(match occupant.activity.as_str() {
+            "claimed" if occupant.is_self => reason("occupied_not_started", "you already hold this work"),
             "claimed" => reason("occupied_not_started", "another principal holds this work"),
+            "working" if occupant.is_self => reason("occupied_working", "you are working on this"),
             "working" => reason("occupied_working", "another principal is working on this"),
+            "paused" if occupant.is_self => reason("occupied_paused", "you have paused this work"),
             "paused" => reason("occupied_paused", "the holder has paused this work"),
             other => {
                 let mut unknown =
@@ -180,7 +185,7 @@ mod tests {
     }
 
     fn occupied(activity: &str) -> Option<OccupantFacts> {
-        Some(OccupantFacts { activity: activity.into(), status: "active".into() })
+        Some(OccupantFacts { activity: activity.into(), status: "active".into(), is_self: false })
     }
 
     fn codes(facts: &WorkFacts) -> Vec<&'static str> {
@@ -260,9 +265,19 @@ mod tests {
     #[test]
     fn inactive_holder_never_frees_the_work_implicitly() {
         let f = WorkFacts {
-            occupant: Some(OccupantFacts { activity: "working".into(), status: "disabled".into() }),
+            occupant: Some(OccupantFacts { activity: "working".into(), status: "disabled".into(), is_self: false }),
             ..facts()
         };
         assert_eq!(codes(&f), ["occupied_working", "occupant_inactive"]);
+    }
+
+    #[test]
+    fn holder_gets_a_self_describing_reason_without_becoming_claimable() {
+        let mut holder = occupied("working").unwrap();
+        holder.is_self = true;
+        let result = availability(&WorkFacts { occupant: Some(holder), ..facts() });
+        assert!(!result.claimable);
+        assert_eq!(result.reasons[0].code, "occupied_working");
+        assert_eq!(result.reasons[0].message, "you are working on this");
     }
 }
