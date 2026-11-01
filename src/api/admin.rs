@@ -1,5 +1,7 @@
 //! 主体・権限・認証情報・サインアップリンクの管理。
 
+use std::collections::HashMap;
+
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -86,6 +88,86 @@ pub async fn list_principals(
                 .iter()
                 .map(|id| principal_json(conn, &actor.org_id, id, admin))
                 .collect::<ApiResult<Vec<_>>>()?;
+            Ok(Json(json!({ "principals": principals })))
+        })
+        .await
+}
+
+/// 各主体の現在の占有を返す。タスクは呼び出し元が現在閲覧できるものだけに限る。
+///
+/// 主体自体は `GET /principals` と同じく組織内で読める。一方、見えないタスクは
+/// 空の作業一覧と区別できないよう、内容も件数も結果に含めない。
+pub async fn list_principal_work(
+    State(state): State<AppState>,
+    actor: Actor,
+) -> ApiResult<Json<Value>> {
+    state
+        .db
+        .read(move |conn| {
+            let ids = {
+                let mut statement = conn.prepare(
+                    "SELECT id FROM principals WHERE org_id = ?1 ORDER BY display_name, id",
+                )?;
+                statement
+                    .query_map([&actor.org_id], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            let with_email = actor.is_org_admin();
+            let mut principals = ids
+                .iter()
+                .map(|id| {
+                    let mut principal = principal_json(conn, &actor.org_id, id, with_email)?;
+                    principal["work"] = json!([]);
+                    Ok(principal)
+                })
+                .collect::<ApiResult<Vec<Value>>>()?;
+            let by_id: HashMap<String, usize> = principals
+                .iter()
+                .enumerate()
+                .filter_map(|(index, principal)| {
+                    principal["id"].as_str().map(|id| (id.to_string(), index))
+                })
+                .collect();
+
+            let mut statement = conn.prepare(
+                "SELECT c.holder_id, t.id, p.id, p.key, p.name, t.number, t.title,
+                        c.activity, c.acquired_at
+                 FROM claims c
+                 JOIN tasks t ON t.id = c.task_id
+                 JOIN projects p ON p.id = t.project_id
+                 WHERE t.org_id = ?1 AND c.ended_at IS NULL
+                 ORDER BY c.acquired_at, t.id",
+            )?;
+            let work = statement.query_map([&actor.org_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?;
+            for row in work {
+                let (holder_id, task_id, project_id, project_key, project_name, number, title, activity, acquired_at) = row?;
+                if !actor.can_view_task(&project_id, &task_id) {
+                    continue;
+                }
+                let Some(&index) = by_id.get(&holder_id) else {
+                    tracing::warn!(holder = %holder_id, task = %task_id, "skipped a claim whose holder is outside its organization");
+                    continue;
+                };
+                principals[index]["work"].as_array_mut().expect("work initialized as an array").push(json!({
+                    "key": format!("{project_key}-{number}"),
+                    "title": title,
+                    "project": { "id": project_id, "key": project_key, "name": project_name },
+                    "activity": activity,
+                    "acquired_at": acquired_at,
+                }));
+            }
             Ok(Json(json!({ "principals": principals })))
         })
         .await

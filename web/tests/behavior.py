@@ -34,6 +34,14 @@ def task(i,s=stage):
 state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
+def principal_work():
+    return {'principals':[
+        {**human,'work':[]},
+        {**agent,'work':[
+            {'key':'DEV-1','title':'Task 1','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'claimed','acquired_at':'2026-11-01T00:00:00.000Z'},
+            {'key':'DEV-2','title':'Task 2','project':{'id':project['id'],'key':project['key'],'name':project['name']},'activity':'working','acquired_at':'2026-11-01T01:00:00.000Z'},
+        ]},
+    ]}
 FUTURE='2099-01-01T00:00:00.000Z'
 def token(id,name,**fields):
     return {'id':id,'name':name,'created_at':'2026-11-01T00:00:00.000Z','expires_at':None,'revoked_at':None,'parent_token_id':None,**fields}
@@ -95,6 +103,7 @@ def route(r):
     elif path=='/projects':
         body={'projects':[{**project,'stages':[stage,new_stage] if state['moved'] else [stage]}]}
     elif path=='/me/inbox': body={'requests':[]}
+    elif path=='/principals/work': body=principal_work()
     elif path=='/principals': body={'principals':[human,agent]}
     elif path=='/signup-links': body={'signup_links':[]}
     elif path=='/principals/agent-1/grants': body={'grants':[]}
@@ -193,6 +202,18 @@ try:
         assert page.locator('.history .badge').get_attribute('title')=='委譲トークン live-token-bbbbbbbb'
         results['delegated_history']=True
         page.goto(base+'/admin')
+        page.get_by_text('作業は主体から報告された状況であり、外部プロセスの稼働を保証するものではありません。',exact=True).wait_for()
+        agent_row=page.locator('tr').filter(has_text='Orchestrator')
+        assert agent_row.get_by_role('link',name='DEV-1 Task 1',exact=True).count()==1
+        assert agent_row.get_by_role('link',name='DEV-2 Task 2',exact=True).count()==1
+        assert '取得済み' in agent_row.inner_text()
+        assert '作業中' in agent_row.inner_text()
+        assert page.locator('tr').filter(has_text='Auditor').get_by_text('作業なし',exact=True).count()==1
+        requests.clear()
+        with page.expect_response(lambda r:r.url.endswith('/api/v1/principals/work')):
+            page.evaluate('window.auditStreams.filter(s=>!s.closed).forEach(s=>s.onmessage?.({data:"{}"}))')
+        results['principal_work']={'multiple_claims':2,'activities':['claimed','working'],'live_reload':'/principals/work' in requests}
+        assert results['principal_work']['live_reload']
         page.get_by_role('button',name='権限',exact=True).last.click()
         rows=page.get_by_role('list',name='発行済みのトークン').get_by_role('listitem')
         rows.first.wait_for()

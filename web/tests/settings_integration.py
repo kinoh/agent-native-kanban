@@ -12,7 +12,8 @@ STATE=Path.home()/'.local/state/agent-native-kanban/settings-integration'
 STATE.mkdir(parents=True,exist_ok=True)
 os.environ['TMPDIR']=str(STATE); tempfile.tempdir=str(STATE)
 run=Path(tempfile.mkdtemp(prefix='run-',dir=STATE)); db=run/'test.sqlite'
-sock=socket.socket(); sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]; sock.close()
+requested_port=os.environ.get('KANBAN_TEST_PORT')
+sock=socket.socket(); sock.bind(('127.0.0.1',int(requested_port) if requested_port else 0)); port=sock.getsockname()[1]; sock.close()
 base=f'http://127.0.0.1:{port}'; binary=ROOT/'target/debug/agent-native-kanban'
 bootstrap=subprocess.run([str(binary),'bootstrap','--db',str(db),'--public-url',base,'--org','Integration','--expires-hours','1'],capture_output=True,text=True,check=True)
 admin_signup=bootstrap.stdout.strip().replace(base,'')
