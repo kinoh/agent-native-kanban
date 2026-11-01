@@ -65,6 +65,7 @@ def api_route(state):
                 return
             body = {"tasks": [task()], "next_cursor": None}
         elif path == "/tasks/THEME-1/context": body = {"task": task(), "parent": None, "children": [], "dependencies": [], "dependents": [], "links": [], "comments": [], "artifacts": [], "history": []}
+        elif path == "/principals": body = {"principals": [human, agent]}
         elif path == "/principals/work":
             work = {"key": "THEME-1", "title": "配色を確認する", "project": {"id": project["id"], "key": project["key"], "name": project["name"]}, "activity": "working", "acquired_at": "2026-11-01T00:00:00.000Z"}
             body = {"principals": [{**human, "work": []}, {**agent, "work": [work]}]}
