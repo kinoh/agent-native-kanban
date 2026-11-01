@@ -25,7 +25,8 @@ type TokenState = "有効" | "失効済み" | "期限切れ" | "親トークン�
 interface PrincipalTreeRow {
   principal: PrincipalWork;
   depth: number;
-  creator: PrincipalWork | null;
+  branches: boolean[];
+  hasChildren: boolean;
 }
 
 function principalTree(principals: PrincipalWork[]): PrincipalTreeRow[] {
@@ -34,26 +35,29 @@ function principalTree(principals: PrincipalWork[]): PrincipalTreeRow[] {
   const roots: PrincipalWork[] = [];
 
   for (const principal of principals) {
-    if (!principal.created_by || !byId.has(principal.created_by) || principal.created_by === principal.id) {
+    const creator = principal.created_by ? byId.get(principal.created_by) : undefined;
+    if (principal.kind !== "agent" || creator?.kind !== "agent" || creator.id === principal.id) {
       roots.push(principal);
       continue;
     }
-    const siblings = children.get(principal.created_by) ?? [];
+    const siblings = children.get(creator.id) ?? [];
     siblings.push(principal);
-    children.set(principal.created_by, siblings);
+    children.set(creator.id, siblings);
   }
 
   const rows: PrincipalTreeRow[] = [];
   const visited = new Set<string>();
-  const visit = (principal: PrincipalWork, depth: number, creator: PrincipalWork | null) => {
+  const visit = (principal: PrincipalWork, branches: boolean[]) => {
     if (visited.has(principal.id)) return;
     visited.add(principal.id);
-    rows.push({ principal, depth, creator });
-    for (const child of children.get(principal.id) ?? []) visit(child, depth + 1, principal);
+    const descendants = (children.get(principal.id) ?? []).filter((child) => !visited.has(child.id));
+    rows.push({ principal, depth: branches.length, branches, hasChildren: descendants.length > 0 });
+    descendants.forEach((child, index) => visit(child, [...branches, index < descendants.length - 1]));
   };
 
-  for (const principal of roots) visit(principal, 0, null);
-  for (const principal of principals) visit(principal, 0, null);
+  for (const principal of roots) visit(principal, []);
+  // A cycle has no root. Start once at its first listed member, retaining every member.
+  for (const principal of principals) visit(principal, []);
   return rows;
 }
 
@@ -456,13 +460,21 @@ export function Admin({ session }: { session: Session }) {
           <tr><th>名前</th><th>種別</th><th>メール</th><th>状態</th><th>作業</th><th /></tr>
         </thead>
         <tbody>
-          {principalRows.map(({ principal, depth, creator }) => (
+          {principalRows.map(({ principal, depth, branches, hasChildren }) => (
             <tr key={principal.id} data-principal={principal.id}>
               <td className="principal-cell">
-                <span className="principal principal-tree" style={{ paddingInlineStart: `${depth * 18}px` }}>
+                {branches.map((continues, level) => (
+                  <span
+                    key={level}
+                    aria-hidden="true"
+                    className={`principal-branch ${level === depth - 1 ? "principal-branch-end" : ""} ${continues ? "principal-branch-through" : ""}`}
+                    style={{ insetInlineStart: `${8 + level * 24 + 11}px` }}
+                  />
+                ))}
+                {hasChildren && <span aria-hidden="true" className="principal-branch principal-branch-down" style={{ insetInlineStart: `${8 + depth * 24 + 11}px` }} />}
+                <span className="principal principal-tree" style={{ paddingInlineStart: `${depth * 24}px` }}>
                   <Avatar principal={principal} />
                   <span className="principal-name">{principal.display_name}</span>
-                  {creator && <span className="principal-creator" aria-label={`作成元 ${creator.display_name}`}>作成元 {creator.display_name}</span>}
                 </span>
               </td>
               <td>{principal.kind === "agent" ? "エージェント" : "人間"}</td>
