@@ -30,8 +30,15 @@ new_stage={**stage,'id':'stage-2','name':'Review','position':1}
 project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','stages':[stage],'transition_rules':[]}
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
-    return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','work':work}
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'principal_work_changed':False}
+    return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','discard':None,'work':work}
+def discard_task(i):
+    final={**stage,'id':'stage-final','name':'Done','position':2,'requires_work':False,'is_final':True}
+    if i==1 and state['discard_view']:
+        return {**task(1,final),'discard':{'discarded_at':'2026-11-01T00:00:00.000Z','reason':'不要になった','discarded_by':agent},'work':{**work,'claimable':False,'can_claim':False,'readiness':'not_required','reasons':[{'code':'discarded','message':'this task has been discarded','details':None}]}}
+    if i==2 and state['discard_view']:
+        return {**task(2),'work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'needs it','discarded':True}]}}
+    return task(i)
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 def principal_work():
@@ -97,6 +104,26 @@ def route(r):
             if principal_id=='human-1': state['display_name']=target['display_name']
         r.fulfill(status=200,content_type='application/json',body=json.dumps(human if principal_id=='human-1' else agent))
         return
+    if r.request.method=='POST' and path=='/tasks/DEV-1/stage' and state['discard_view']:
+        r.fulfill(status=409,content_type='application/json',body=json.dumps({'error':{'code':'task_discarded','message':'this task is discarded'}}))
+        return
+    if r.request.method=='POST' and path in ('/tasks/DEV-1/discard','/tasks/DEV-1/restore'):
+        body=r.request.post_data_json
+        assert set(body)=={'version','to_stage_id','reason'} and body['reason'].strip()
+        state['discard_requests'].append((path.rsplit('/',1)[1],body['to_stage_id']))
+        state['discard_view']=path.endswith('/discard')
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(task(1)))
+        return
+    if r.request.method=='PATCH' and path=='/projects/project-1':
+        body=r.request.post_data_json
+        assert set(body)=={'description'}
+        if state['reject_project_patch']:
+            state['reject_project_patch']=False
+            r.fulfill(status=422,content_type='application/json',body=json.dumps({'error':{'code':'invalid_request','message':'description is too long'}}))
+            return
+        project['description']=body['description'].strip()
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(project))
+        return
     if r.request.method=='DELETE' and path.startswith('/tokens/'):
         match=next(t for t in tokens if t['id']==path.rsplit('/',1)[1])
         match['revoked_at']='2026-11-01T00:00:00.000Z'
@@ -138,7 +165,7 @@ def route(r):
             return
         body={'id':'human-1','kind':'human','display_name':state['display_name'],'email':'auditor@example.test','organization':{'id':'org-1','name':state['organization_name']},'is_org_admin':state['is_org_admin'],'grants':[{'project_id':None,'permission':'admin'}] if state['is_org_admin'] else []}
     elif path=='/projects':
-        body={'projects':[{**project,'stages':[stage,new_stage] if state['moved'] else [stage]}]}
+        body={'projects':[{**project,'stages':state['stages'] or ([stage,new_stage] if state['moved'] else [stage])}]}
     elif path=='/me/inbox': body={'requests':[]}
     elif path=='/principals/work': body=principal_work()
     elif path=='/principals': body={'principals':[human,agent]}
@@ -148,7 +175,9 @@ def route(r):
     elif path=='/tasks/DEV-1/context':
         history=[{'seq':1,'type':'work.claimed','category':'work','actor':agent,'delegated_token_id':'live-token-bbbbbbbb','data':{},'created_at':'2026-11-01T00:00:00.000Z'},
                  {'seq':2,'type':'work.released','category':'work','actor':agent,'delegated_token_id':None,'data':{},'created_at':'2026-11-01T00:00:00.000Z'}]
-        body={'task':task(1),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':[],'artifacts':[],'history':history}
+        body={'task':discard_task(1) if state['mode']=='discard' else task(1),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':[],'artifacts':[],'history':history}
+    elif path=='/tasks/DEV-2/context':
+        body={'task':discard_task(2),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':[],'artifacts':[],'history':[]}
     elif path.startswith('/tasks?'):
         if state['mode']=='many':
             query=parse_qs(urlsplit(path).query)
@@ -169,6 +198,8 @@ def route(r):
                 r.fulfill(status=500,content_type='application/json',body=json.dumps({'error':{'code':'internal_error','message':'page unavailable'}}))
                 return
             body={'tasks':[task(i) for i in range(1,501)],'total':501,'next_cursor':500}
+        elif state['mode']=='discard':
+            body={'tasks':[discard_task(1),discard_task(2)],'total':2,'next_cursor':None}
         else: body={'tasks':[task(1,new_stage if state['moved'] else stage)],'total':1,'next_cursor':None}
     else: raise AssertionError(path)
     r.fulfill(status=200,content_type='application/json',body=json.dumps(body))
@@ -390,7 +421,104 @@ try:
         page.screenshot(path=str(STATE/'resources.png'))
         results['resources']={'created':True,'acquired_and_released':True,'external_hold_reloaded':True,'revoked':True,'edited':True,'deleted':page.locator('.resource-card').count()==0}
         assert results['resources']['deleted']
+        state['mode']='stage'
+        page.goto(base+'/projects/DEV/board')
+        page.wait_for_selector('[data-task="DEV-1"]')
+        page.get_by_role('link',name='プロジェクトの概要を設定',exact=True).click()
+        overview_box=page.get_by_role('textbox',name='プロジェクトの概要',exact=True)
+        overview_box.wait_for()
+        state['reject_project_patch']=True
+        overview_box.fill('rejected text')
+        page.get_by_role('button',name='概要を保存',exact=True).click()
+        page.get_by_text('description is too long',exact=True).wait_for()
+        assert project['description']=='' and overview_box.input_value()=='rejected text'
+        assert page.get_by_text('保存しました').count()==0
+        overview_box.fill('  目的: 監査\nrepo: org/audit\n3行目の詳細  ')
+        page.get_by_role('button',name='概要を保存',exact=True).click()
+        page.get_by_text('保存しました').wait_for()
+        assert project['description']=='目的: 監査\nrepo: org/audit\n3行目の詳細'
+        assert overview_box.input_value()==project['description']
+        page.reload()
+        overview_box.wait_for()
+        assert overview_box.input_value()==project['description']
+        for url in ('/projects/DEV/board','/projects/DEV/list','/tasks/DEV-1'):
+            page.goto(base+url)
+            shown=page.get_by_role('region',name='プロジェクトの概要')
+            shown.wait_for()
+            assert shown.locator('p').evaluate('p=>getComputedStyle(p).whiteSpace')=='pre-wrap'
+            assert shown.locator('p').inner_text().split('\n')==project['description'].split('\n')
+            toggle=shown.get_by_role('button',name='すべて表示',exact=True)
+            collapsed=shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')
+            toggle.click()
+            expanded=shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')
+            assert expanded>collapsed, (url,collapsed,expanded)
+            shown.get_by_role('button',name='折りたたむ',exact=True).click()
+            assert shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')==collapsed
+        results['project_overview_saved_and_shown']=True
+        final_stage={**stage,'id':'stage-final','name':'Done','position':2,'requires_work':False,'is_final':True}
+        state['stages']=[stage,final_stage]
+        project['description']=''
+        state['mode']='discard'
+        page.goto(base+'/tasks/DEV-1')
+        page.get_by_role('button',name='破棄',exact=True).click()
+        dialog=page.locator('.modal')
+        assert dialog.get_by_label('移動先の最終段階').input_value()=='stage-final'
+        dialog.get_by_label('理由').fill('不要になった')
+        dialog.get_by_role('button',name='破棄する',exact=True).click()
+        page.locator('.discard-note').get_by_text('不要になった').wait_for()
+        assert state['discard_requests']==[('discard','stage-final')]
+        assert page.locator('.title-input').evaluate('e=>getComputedStyle(e).textDecorationLine')=='line-through'
+        assert page.locator('.stage-button').is_disabled()
+        assert page.get_by_role('button',name='破棄',exact=True).count()==0
+        page.goto(base+'/projects/DEV/board')
+        discarded_card=page.locator('[data-task="DEV-1"]')
+        discarded_card.wait_for()
+        assert discarded_card.locator('.key').evaluate('e=>getComputedStyle(e).textDecorationLine')=='line-through'
+        assert discarded_card.locator('.card-title').evaluate('e=>getComputedStyle(e).textDecorationLine')=='line-through'
+        assert discarded_card.get_by_text('破棄',exact=True).count()==1
+        normal_card=page.locator('[data-task="DEV-2"]')
+        assert normal_card.locator('.card-title').evaluate('e=>getComputedStyle(e).textDecorationLine')=='none'
+        assert normal_card.get_by_text('依存先が破棄',exact=True).count()==1
+        before=discarded_card.evaluate('e=>e.closest("[data-stage]").dataset.stage')
+        discarded_card.drag_to(page.locator('[data-stage="Implement"]'))
+        page.get_by_text('this task is discarded',exact=True).wait_for()
+        assert discarded_card.evaluate('e=>e.closest("[data-stage]").dataset.stage')==before=='Done'
+        page.goto(base+'/projects/DEV/list')
+        row=page.locator('tbody tr').first
+        row.wait_for()
+        assert row.locator('.key').evaluate('e=>getComputedStyle(e).textDecorationLine')=='line-through'
+        assert row.locator('.task-title').evaluate('e=>getComputedStyle(e).textDecorationLine')=='line-through'
+        assert row.get_by_text('破棄',exact=True).count()==1
+        page.goto(base+'/tasks/DEV-2')
+        page.get_by_text('依存先 DEV-1 は破棄されています',exact=False).wait_for()
+        page.goto(base+'/tasks/DEV-1')
+        page.get_by_role('button',name='破棄を取り消す',exact=True).click()
+        dialog=page.locator('.modal')
+        assert dialog.get_by_label('戻す段階').locator('option').count()==2
+        dialog.get_by_label('戻す段階').select_option('stage-1')
+        dialog.get_by_label('理由').fill('必要になった')
+        dialog.get_by_role('button',name='取り消す',exact=True).click()
+        page.get_by_role('button',name='破棄',exact=True).wait_for()
+        assert state['discard_requests'][-1]==('restore','stage-1')
+        assert page.locator('.title-input').evaluate('e=>getComputedStyle(e).textDecorationLine')=='none'
+        results['discard_shown_and_restored']=True
+        state['mode']='stage'
+        state['stages']=None
+        project['description']='目的: 監査\nrepo: org/audit\n3行目の詳細'
         state['is_org_admin']=False
+        page.goto(base+'/projects/DEV/settings')
+        page.get_by_text('repo: org/audit').wait_for()
+        assert page.get_by_role('textbox',name='プロジェクトの概要',exact=True).count()==0
+        assert page.get_by_role('button',name='概要を保存',exact=True).count()==0
+        project['description']=''
+        page.goto(base+'/projects/DEV/board')
+        page.wait_for_selector('[data-task="DEV-1"]')
+        assert page.get_by_role('region',name='プロジェクトの概要').count()==0
+        assert page.get_by_role('link',name='プロジェクトの概要を設定',exact=True).count()==0
+        page.goto(base+'/tasks/DEV-1')
+        page.wait_for_selector('.breadcrumbs')
+        assert page.get_by_role('region',name='プロジェクトの概要').count()==0
+        results['project_overview_read_only_and_empty']=True
         page.goto(base+'/projects/DEV/board')
         page.locator('.sidebar').get_by_role('link',name='Lead Auditor',exact=True).wait_for()
         assert page.get_by_role('link',name='組織の管理',exact=True).count()==0

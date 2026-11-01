@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { api } from "../api";
 import { useLiveChanges } from "../live";
 import { navigate } from "../router";
+import type { Session } from "../App";
 import type { Principal, Project, Stage, Task } from "../types";
 import { ErrorNote, Modal, PRIORITY_LABEL } from "../ui";
 
@@ -51,6 +52,56 @@ export function usePrincipals(): Principal[] {
     void api.get<{ principals: Principal[] }>("/principals").then((reply) => setPrincipals(reply.principals));
   }, []);
   return principals.filter((principal) => principal.status !== "deleted");
+}
+
+export function canAdminProject(session: Session, project: Project) {
+  return session.me.grants.some(
+    (grant) => grant.permission === "admin" && (grant.project_id === null || grant.project_id === project.id),
+  );
+}
+
+export function canEditProject(session: Session, project: Project) {
+  return (
+    canAdminProject(session, project) ||
+    session.me.grants.some(
+      (grant) => grant.permission === "edit" && (grant.project_id === null || grant.project_id === project.id),
+    )
+  );
+}
+
+const OVERVIEW_COLLAPSED_LINES = 2;
+const OVERVIEW_COLLAPSED_CHARS = 160;
+
+export function ProjectOverview({ project, settingsLink }: { project: Project; settingsLink: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const text = project.description;
+  if (!text) {
+    if (!settingsLink) return null;
+    return (
+      <p className="project-overview-empty muted">
+        <a
+          href={`/projects/${project.key}/settings`}
+          onClick={(event) => {
+            event.preventDefault();
+            navigate(`/projects/${project.key}/settings`);
+          }}
+        >
+          プロジェクトの概要を設定
+        </a>
+      </p>
+    );
+  }
+  const long = text.length > OVERVIEW_COLLAPSED_CHARS || text.split("\n").length > OVERVIEW_COLLAPSED_LINES;
+  return (
+    <section className="project-overview" aria-label="プロジェクトの概要">
+      <p className={long && !expanded ? "collapsed" : ""}>{text}</p>
+      {long && (
+        <button type="button" className="link" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+          {expanded ? "折りたたむ" : "すべて表示"}
+        </button>
+      )}
+    </section>
+  );
 }
 
 export function ViewTabs({ project, current }: { project: Project; current: "board" | "list" | "settings" }) {

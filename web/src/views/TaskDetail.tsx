@@ -6,6 +6,7 @@ import { navigate } from "../router";
 import type { Principal, Project, Task, TaskContext } from "../types";
 import {
   ACTIVITY_LABEL,
+  DiscardBadge,
   ErrorNote,
   Modal,
   PRIORITY_LABEL,
@@ -18,7 +19,7 @@ import {
   reasonText,
   shortTokenId,
 } from "../ui";
-import { MoveStage, usePrincipals } from "./common";
+import { MoveStage, ProjectOverview, canAdminProject, canEditProject, usePrincipals } from "./common";
 
 const COMMENT_KINDS: Record<string, string> = {
   comment: "コメント",
@@ -37,6 +38,8 @@ const EVENT_LABELS: Record<string, string> = {
   "task.created": "タスクを作成",
   "task.updated": "タスクを編集",
   "stage.changed": "業務段階を変更",
+  "task.discarded": "タスクを破棄",
+  "task.restored": "破棄を取り消し",
   "work.claimed": "作業を取得",
   "work.started": "作業を開始",
   "work.paused": "作業を一時停止",
@@ -94,12 +97,8 @@ function WorkPanel({
   const work = task.work;
   const path = `/tasks/${task.key}/work`;
   const claimRef = { claim_id: work.claim_id };
-  const isAdmin = session.me.grants.some(
-    (grant) => grant.permission === "admin" && (grant.project_id === null || grant.project_id === project.id),
-  );
-  const canEdit = isAdmin || session.me.grants.some(
-    (grant) => grant.permission === "edit" && (grant.project_id === null || grant.project_id === project.id),
-  );
+  const isAdmin = canAdminProject(session, project);
+  const canEdit = canEditProject(session, project);
 
   const run = async (operation: string, body: unknown = {}) => {
     try {
@@ -166,6 +165,11 @@ function WorkPanel({
           {work.reasons.map((reason) => (
             <li key={reason.code}>{reasonText(reason, work.hold_reason)}</li>
           ))}
+          {work.blockers
+            .filter((blocker) => blocker.discarded)
+            .map((blocker) => (
+              <li key={blocker.id}>依存先 {blocker.key} は破棄されています。依存を外すか、破棄を取り消してください</li>
+            ))}
           {work.hidden_blockers > 0 && <li>閲覧権限のない依存タスクが {work.hidden_blockers} 件あります</li>}
         </ul>
       )}
@@ -182,7 +186,7 @@ function WorkPanel({
         {work.claim_id && <button onClick={() => open("transfer")}>引継ぐ</button>}
         {work.claim_id && <button onClick={() => open("release")}>解放</button>}
         {canEdit && work.readiness === "done" && <button onClick={() => open("reopen")}>再開可能に戻す</button>}
-        {canEdit && !work.occupant && task.stage.requires_work && work.hold_reason === null && work.readiness !== "done" && (
+        {canEdit && !work.occupant && !task.discard && task.stage.requires_work && work.hold_reason === null && work.readiness !== "done" && (
           <button onClick={() => open("hold")}>保留</button>
         )}
         {canEdit && work.hold_reason !== null && <button onClick={() => void run("unhold")}>保留を解除</button>}
@@ -338,16 +342,82 @@ function CommentForm({
 }
 
 function historyDetail(type: string, data: Record<string, unknown>): string {
-  if (type === "stage.changed") {
+  if (type === "stage.changed" || type === "task.discarded" || type === "task.restored") {
     const from = data.from as { name: string };
     const to = data.to as { name: string };
-    return `${from.name} → ${to.name}`;
+    const moved = `${from.name} → ${to.name}`;
+    return typeof data.reason === "string" ? `${moved}: ${data.reason}` : moved;
   }
   if (typeof data.reason === "string") return data.reason;
   if (type === "task.updated") return Object.keys((data.changes as object) ?? {}).join(", ");
   if (typeof data.depends_on === "string") return data.depends_on;
   if (typeof data.related === "string") return data.related;
   return "";
+}
+
+function DiscardDialog({
+  task,
+  project,
+  mode,
+  onClose,
+  onDone,
+}: {
+  task: Task;
+  project: Project;
+  mode: "discard" | "restore";
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const stages = project.stages.filter((stage) => stage.is_final === (mode === "discard"));
+  const [stageId, setStageId] = useState(mode === "discard" && stages.length === 1 ? stages[0].id : "");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await api.post(`/tasks/${task.key}/${mode}`, { version: task.version, to_stage_id: stageId, reason });
+      onDone();
+      onClose();
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title={mode === "discard" ? `${task.key} を破棄` : `${task.key} の破棄を取り消す`} onClose={onClose}>
+      <form onSubmit={submit}>
+        {stages.length === 0 && (
+          <p className="muted">
+            {mode === "discard" ? "このプロジェクトには最終段階がありません。" : "戻せる段階がありません。"}
+          </p>
+        )}
+        <label>
+          {mode === "discard" ? "移動先の最終段階" : "戻す段階"}
+          <select value={stageId} onChange={(e) => setStageId(e.target.value)} required>
+            <option value="">選択してください</option>
+            {stages.map((stage) => (
+              <option key={stage.id} value={stage.id}>
+                {stage.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          理由
+          <textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} required />
+        </label>
+        <ErrorNote message={error} />
+        <div className="actions">
+          <button type="submit" className={mode === "discard" ? "danger" : "primary"} disabled={saving || stages.length === 0}>
+            {mode === "discard" ? "破棄する" : "取り消す"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 function RelationForm({
@@ -419,6 +489,7 @@ export function TaskDetail({ reference, session }: { reference: string; session:
 
   const task = context?.task;
   const project = session.projects.find((item) => item.id === task?.project_id);
+  const [discarding, setDiscarding] = useState<"discard" | "restore" | null>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -467,6 +538,7 @@ export function TaskDetail({ reference, session }: { reference: string; session:
     }
   };
 
+  const canEdit = canEditProject(session, project);
   const comments = context.comments.filter((comment) => comment.parent_id === null);
   const answersTo = (id: string) => context.comments.filter((comment) => comment.parent_id === id);
   const history = context.history.filter(
@@ -488,8 +560,17 @@ export function TaskDetail({ reference, session }: { reference: string; session:
           </a>
           <span className="key">{task.key}</span>
         </div>
-        <EditableTitle value={task.title} onSave={(title) => update({ title })} />
+        <ProjectOverview project={project} settingsLink={false} />
+        <EditableTitle value={task.title} discarded={!!task.discard} onSave={(title) => update({ title })} />
         <ErrorNote message={error} />
+        {task.discard && (
+          <section className="discard-note">
+            <DiscardBadge /> {task.discard.reason}
+            <div className="muted">
+              {task.discard.discarded_by?.display_name ?? "不明な主体"}・{formatTime(task.discard.discarded_at)}
+            </div>
+          </section>
+        )}
         <EditableText label="説明" large value={task.description} onSave={(description) => update({ description })} />
         <EditableText label="目的" value={task.purpose} onSave={(purpose) => update({ purpose })} />
         <EditableText label="完了条件" value={task.acceptance_criteria} onSave={(acceptance_criteria) => update({ acceptance_criteria })} />
@@ -621,9 +702,26 @@ export function TaskDetail({ reference, session }: { reference: string; session:
       <aside className="detail-side">
         <section>
           <h3>業務段階</h3>
-          <button className="stage-button" onClick={() => setMoving(true)}>
+          <button className="stage-button" disabled={!!task.discard} onClick={() => setMoving(true)}>
             {task.stage.name} <kbd>m</kbd>
           </button>
+          {canEdit && !task.discard && !task.stage.is_final && (
+            <div className="actions">
+              <button
+                className="danger"
+                disabled={!!task.work.occupant}
+                title={task.work.occupant ? "占有中のタスクは破棄できません。先に解放してください" : undefined}
+                onClick={() => setDiscarding("discard")}
+              >
+                破棄
+              </button>
+            </div>
+          )}
+          {canEdit && task.discard && (
+            <div className="actions">
+              <button onClick={() => setDiscarding("restore")}>破棄を取り消す</button>
+            </div>
+          )}
         </section>
         <WorkPanel task={task} project={project} session={session} principals={principals} onChanged={() => void reload()} onError={setError} />
         <section className="fields">
@@ -670,16 +768,17 @@ export function TaskDetail({ reference, session }: { reference: string; session:
         </section>
       </aside>
       {moving && <MoveStage task={task} stages={project.stages} onClose={() => setMoving(false)} onMoved={() => void reload()} />}
+      {discarding && <DiscardDialog task={task} project={project} mode={discarding} onClose={() => setDiscarding(null)} onDone={() => void reload()} />}
     </div>
   );
 }
 
-function EditableTitle({ value, onSave }: { value: string; onSave: (value: string) => Promise<void> }) {
+function EditableTitle({ value, discarded, onSave }: { value: string; discarded: boolean; onSave: (value: string) => Promise<void> }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   return (
     <input
-      className="title-input"
+      className={discarded ? "title-input discarded" : "title-input"}
       aria-label="タイトル"
       value={draft}
       onChange={(e) => setDraft(e.target.value)}

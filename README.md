@@ -124,10 +124,10 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 | 権限 | `GET・POST /principals/{id}/grants`、`DELETE /grants/{id}` |
 | トークン | `GET・POST /principals/{id}/tokens`、`DELETE /tokens/{id}` |
 | サインアップ URL | `GET・POST /signup-links`、`DELETE /signup-links/{id}` |
-| プロジェクト | `GET・POST /projects`、`GET・PATCH /projects/{id}` |
+| プロジェクト | `GET・POST /projects`、`GET・PATCH /projects/{id}`（`description` は目的やリポジトリを書く概要で、2000文字以内） |
 | ワークフロー | `POST /projects/{id}/stages`、`PATCH・DELETE /stages/{id}`、`PUT /projects/{id}/transition-rules` |
 | リソース | `GET・POST /resources`、`GET・PATCH・DELETE /resources/{id}`、`POST /resources/{id}/{acquire,release,revoke}` |
-| タスク | `GET・POST /tasks`、`GET・PATCH /tasks/{task}`、`GET /tasks/{task}/context`、`GET /tasks/{task}/history` |
+| タスク | `GET・POST /tasks`、`GET・PATCH /tasks/{task}`、`GET /tasks/{task}/context`（プロジェクトの概要を含む）、`GET /tasks/{task}/history`、`POST /tasks/{task}/discard`、`POST /tasks/{task}/restore` |
 | 業務段階 | `POST /tasks/{task}/stage` |
 | 作業（占有者） | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete}` |
 | 作業（編集権限） | `POST /tasks/{task}/work/{reopen,hold,unhold}` |
@@ -193,7 +193,8 @@ Web UI では発行しない。組織管理者は「組織の管理」の「権�
 - **作業はタスク1件につき占有1つ**。占有・活動は `claims`、作業準備は `tasks.work_state` に持つ。並行作業は子タスクに分割して表現する
 - **業務段階の変更は作業状態を初期化する**。新しい段階の作業が `open` から始まる。占有が残っているタスクは段階を変更できず、`task_occupied` を返す
 - **段階の設定**: `requires_work` が偽の段階（バックログや完了など）には取得する作業がない。`claim_permission` は取得に必要な権限で、レビュー段階なら `review` にする
-- **依存の完了**は、依存先が `is_final` の段階に到達したこと。段階名からは判定しない
+- **依存の完了**は、依存先が `is_final` の段階に到達したこと。段階名からは判定しない。破棄された依存先は完了に数えない
+- **破棄**は実施しないと決めたタスクを理由つきで最終段階に閉じる操作で、段階ではなくタスクの属性として持つ。遷移ルールは適用せず、依存元のブロックも解除しない。占有中のタスクと、通常の移動で最終段階へ進んだタスクは破棄できない。取り消すと最終段階以外へ戻る。破棄中は `POST /tasks/{task}/stage` を `task_discarded` で拒否し、破棄されたタスクがある段階の `is_final` は偽にできない
 - **プロジェクトの境界**: 依存・関連・親子関係は同一プロジェクト内に限定する。横断指定は `422 relation_project_mismatch`。閲覧できない参照先は従来通り404を返す。APIとDBの両方で制約を検証する
 - **関係の履歴**: 過去の依存・関連・親変更イベントも参照先への現在の閲覧権限を確認する。参照先を閲覧できないイベントは文脈・履歴・変更フィード（SSEを含む）から除外し、保存済みの記録は維持する
 - **遷移ルールの履歴**: `workflow.rules_replaced` の `from`・`to` に変更前後のルール一覧を記録する（段階ID、必要権限、作業完了条件を含む）

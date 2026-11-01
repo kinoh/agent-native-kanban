@@ -69,6 +69,8 @@ pub struct WorkFacts {
     pub occupant: Option<OccupantFacts>,
     /// 未完了の依存タスク数
     pub open_blockers: usize,
+    /// 実施しないと決められたタスクか
+    pub discarded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +104,11 @@ pub fn availability(facts: &WorkFacts) -> Availability {
     let mut reasons = Vec::new();
 
     let readiness = match (facts.work_state.as_str(), facts.stage_requires_work) {
+        // 段階が作業を求めていても、破棄されたタスクに行う仕事はない。
+        _ if facts.discarded => {
+            reasons.push(reason("discarded", "this task has been discarded"));
+            Readiness::NotRequired
+        }
         ("done", _) => {
             reasons.push(reason("work_done", "the work for this stage has been completed"));
             Readiness::Done
@@ -168,6 +175,7 @@ mod tests {
             stage_requires_work: true,
             occupant: None,
             open_blockers: 0,
+            discarded: false,
         }
     }
 
@@ -211,6 +219,12 @@ mod tests {
 
     #[test]
     fn completed_work_cannot_be_claimed() {
+        let f = WorkFacts { discarded: true, ..facts() };
+        let result = availability(&f);
+        assert!(!result.claimable);
+        assert_eq!(result.readiness, Readiness::NotRequired);
+        assert_eq!(result.reasons[0].code, "discarded");
+
         let f = WorkFacts { work_state: "done".into(), ..facts() };
         let result = availability(&f);
         assert!(!result.claimable);

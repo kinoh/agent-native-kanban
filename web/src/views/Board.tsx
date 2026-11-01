@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import type { Session } from "../App";
 import { navigate } from "../router";
 import type { Project, Task } from "../types";
-import { Avatar, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
-import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ViewTabs, filterQuery, useProjectTasks } from "./common";
+import { Avatar, DiscardBadge, ErrorNote, PriorityMark, WorkBadge, isTyping } from "../ui";
+import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
 
 function Card({
   task,
@@ -16,7 +17,7 @@ function Card({
 }) {
   return (
     <article
-      className={selected ? "card selected" : "card"}
+      className={["card", selected ? "selected" : "", task.discard ? "discarded" : ""].join(" ").trim()}
       data-task={task.key}
       draggable
       onDragStart={(event) => event.dataTransfer.setData("text/plain", task.key)}
@@ -25,6 +26,7 @@ function Card({
     >
       <div className="card-top">
         <span className="key">{task.key}</span>
+        {task.discard && <DiscardBadge />}
         <PriorityMark priority={task.priority} />
         {task.assignee && <Avatar principal={task.assignee} size={18} />}
       </div>
@@ -41,6 +43,7 @@ function Card({
       </a>
       <div className="card-work">
         <WorkBadge work={task.work} />
+        {task.work.blockers.some((blocker) => blocker.discarded) && <span className="discarded-blocker">依存先が破棄</span>}
         {task.work.occupant && (
           <span className="occupant">
             <Avatar principal={task.work.occupant} size={18} />
@@ -52,7 +55,7 @@ function Card({
   );
 }
 
-export function BoardView({ project }: { project: Project }) {
+export function BoardView({ project, session }: { project: Project; session: Session }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const { tasks, error, setError, reload } = useProjectTasks(project.id, filterQuery(filters));
   const [selected, setSelected] = useState<string | null>(null);
@@ -132,6 +135,7 @@ export function BoardView({ project }: { project: Project }) {
           タスクを作成 <kbd>c</kbd>
         </button>
       </header>
+      <ProjectOverview project={project} settingsLink={canAdminProject(session, project)} />
       <FilterBar filters={filters} onChange={setFilters} />
       <ErrorNote message={error} />
       <div className="board">

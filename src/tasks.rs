@@ -16,19 +16,22 @@ const TASK_SELECT: &str = "
 SELECT t.id, t.org_id, t.project_id, p.key AS project_key, t.number, t.title, t.description,
        t.purpose, t.acceptance_criteria, t.priority, t.due_at, t.parent_id, t.work_state,
        t.hold_reason, t.version, t.last_claimable, t.created_by, t.created_at, t.updated_at,
+       t.discarded_at, t.discard_reason,
        s.id AS stage_id, s.name AS stage_name, s.position AS stage_position,
        s.requires_work, s.claim_permission, s.is_final,
        c.id AS claim_id, c.activity, c.acquired_at,
        h.id AS holder_id, h.kind AS holder_kind, h.display_name AS holder_name, h.status AS holder_status,
        r.id AS responsible_id, r.kind AS responsible_kind, r.display_name AS responsible_name, r.status AS responsible_status,
-       a.id AS assignee_id, a.kind AS assignee_kind, a.display_name AS assignee_name, a.status AS assignee_status
+       a.id AS assignee_id, a.kind AS assignee_kind, a.display_name AS assignee_name, a.status AS assignee_status,
+       d.id AS discarder_id, d.kind AS discarder_kind, d.display_name AS discarder_name, d.status AS discarder_status
 FROM tasks t
 JOIN projects p ON p.id = t.project_id
 JOIN stages s ON s.id = t.stage_id
 LEFT JOIN claims c ON c.task_id = t.id AND c.ended_at IS NULL
 LEFT JOIN principals h ON h.id = c.holder_id
 LEFT JOIN principals r ON r.id = t.responsible_id
-LEFT JOIN principals a ON a.id = t.assignee_id";
+LEFT JOIN principals a ON a.id = t.assignee_id
+LEFT JOIN principals d ON d.id = t.discarded_by";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PrincipalRef {
@@ -54,6 +57,15 @@ pub struct Blocker {
     pub key: String,
     pub project_id: String,
     pub reason: String,
+    pub discarded: bool,
+}
+
+/// 破棄の記録。破棄された間だけ存在し、取り消すと消える。経緯はイベントに残る。
+#[derive(Debug, Clone, Serialize)]
+pub struct Discard {
+    pub discarded_at: String,
+    pub reason: String,
+    pub discarded_by: Option<PrincipalRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +89,7 @@ pub struct TaskRow {
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
+    pub discard: Option<Discard>,
     pub stage: StageRef,
     pub claim_id: Option<String>,
     pub activity: Option<String>,
@@ -96,6 +109,17 @@ fn principal_ref(row: &Row<'_>, prefix: &str) -> rusqlite::Result<Option<Princip
         kind: row.get(format!("{prefix}_kind").as_str())?,
         display_name: row.get(format!("{prefix}_name").as_str())?,
         status: row.get(format!("{prefix}_status").as_str())?,
+    }))
+}
+
+fn discard(row: &Row<'_>) -> rusqlite::Result<Option<Discard>> {
+    let Some(discarded_at) = row.get::<_, Option<String>>("discarded_at")? else {
+        return Ok(None);
+    };
+    Ok(Some(Discard {
+        discarded_at,
+        reason: row.get("discard_reason")?,
+        discarded_by: principal_ref(row, "discarder")?,
     }))
 }
 
@@ -120,6 +144,7 @@ fn task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
         created_by: row.get("created_by")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+        discard: discard(row)?,
         stage: StageRef {
             id: row.get("stage_id")?,
             name: row.get("stage_name")?,
@@ -152,13 +177,15 @@ pub fn load_tasks(
         .collect::<Result<Vec<_>, _>>()?;
 
     // 依存先の最終段階到達を「完了」とする。readiness は段階ごとにリセットされるので使えない。
+    // 破棄された依存先は最終段階にあっても前提の仕事が行われていないので、完了に数えない。
     let blockers_sql = format!(
-        "SELECT d.task_id, b.id, bp.key || '-' || b.number, b.project_id, d.reason
+        "SELECT d.task_id, b.id, bp.key || '-' || b.number, b.project_id, d.reason,
+                b.discarded_at IS NOT NULL
          FROM task_dependencies d
          JOIN tasks b ON b.id = d.depends_on_id
          JOIN projects bp ON bp.id = b.project_id
          JOIN stages bs ON bs.id = b.stage_id
-         WHERE bs.is_final = 0
+         WHERE (bs.is_final = 0 OR b.discarded_at IS NOT NULL)
            AND d.task_id IN (SELECT t.id FROM tasks t WHERE {filter})"
     );
     let mut statement = conn.prepare(&blockers_sql)?;
@@ -170,6 +197,7 @@ pub fn load_tasks(
                 key: row.get(2)?,
                 project_id: row.get(3)?,
                 reason: row.get(4)?,
+                discarded: row.get(5)?,
             },
         ))
     })?;
@@ -249,6 +277,7 @@ impl TaskRow {
                 status: holder.status.clone(),
             }),
             open_blockers: self.blockers.len(),
+            discarded: self.discard.is_some(),
         }
     }
 
@@ -268,6 +297,8 @@ pub struct BlockerView {
     pub id: String,
     pub key: String,
     pub reason: String,
+    /// 依存先が破棄されたためのブロックか。取り下げか作り直しの判断が要る。
+    pub discarded: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -311,6 +342,7 @@ pub struct TaskView {
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
+    pub discard: Option<Discard>,
     pub work: WorkView,
 }
 
@@ -364,6 +396,7 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
         created_by: task.created_by.clone(),
         created_at: task.created_at.clone(),
         updated_at: task.updated_at.clone(),
+        discard: task.discard.clone(),
         work: WorkView {
             readiness: result.readiness,
             claimable: result.claimable,
@@ -379,7 +412,12 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
             hold_reason: task.hold_reason.clone(),
             blockers: visible
                 .into_iter()
-                .map(|b| BlockerView { id: b.id.clone(), key: b.key.clone(), reason: b.reason.clone() })
+                .map(|b| BlockerView {
+                    id: b.id.clone(),
+                    key: b.key.clone(),
+                    reason: b.reason.clone(),
+                    discarded: b.discarded,
+                })
                 .collect(),
             hidden_blockers: hidden.len(),
         },

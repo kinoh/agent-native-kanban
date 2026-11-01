@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import type { Session } from "../App";
 import { navigate } from "../router";
 import type { Project, Task } from "../types";
-import { Avatar, ErrorNote, PrincipalLabel, PriorityMark, WorkBadge, formatTime, isTyping } from "../ui";
-import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ViewTabs, filterQuery, useProjectTasks } from "./common";
+import { Avatar, DiscardBadge, ErrorNote, PrincipalLabel, PriorityMark, WorkBadge, formatTime, isTyping } from "../ui";
+import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
 
-export function ListView({ project }: { project: Project }) {
+export function ListView({ project, session }: { project: Project; session: Session }) {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const { tasks, error, reload } = useProjectTasks(project.id, filterQuery(filters));
   const [index, setIndex] = useState(0);
@@ -42,6 +43,7 @@ export function ListView({ project }: { project: Project }) {
           タスクを作成 <kbd>c</kbd>
         </button>
       </header>
+      <ProjectOverview project={project} settingsLink={canAdminProject(session, project)} />
       <FilterBar filters={filters} onChange={setFilters} />
       <ErrorNote message={error} />
       <table className="task-table">
@@ -59,9 +61,11 @@ export function ListView({ project }: { project: Project }) {
         </thead>
         <tbody>
           {tasks.map((task, row) => (
-            <tr key={task.id} className={row === index ? "selected" : ""} onClick={() => navigate(`/tasks/${task.key}`)}>
+            <tr key={task.id} className={[row === index ? "selected" : "", task.discard ? "discarded" : ""].join(" ").trim()} onClick={() => navigate(`/tasks/${task.key}`)}>
               <td className="key">{task.key}</td>
-              <td>{task.title}</td>
+              <td>
+                <span className="task-title">{task.title}</span> {task.discard && <DiscardBadge />}
+              </td>
               <td>
                 <PriorityMark priority={task.priority} />
               </td>
