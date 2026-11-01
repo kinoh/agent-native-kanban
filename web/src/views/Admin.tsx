@@ -1,8 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { Session } from "../App";
-import type { Permission, Principal, SignupLink } from "../types";
-import { Avatar, ErrorNote, Modal, formatTime } from "../ui";
+import type { ApiToken, Permission, Principal, SignupLink } from "../types";
+import { Avatar, ErrorNote, Modal, formatTime, shortTokenId } from "../ui";
 
 const PERMISSIONS: Permission[] = ["view", "create", "edit", "claim", "assign", "review", "approve", "admin"];
 
@@ -19,6 +19,37 @@ interface Grant {
   permission: Permission;
 }
 
+type TokenState = "有効" | "失効済み" | "期限切れ" | "親トークンが無効";
+
+function ownState(token: ApiToken, now: string): TokenState {
+  if (token.revoked_at) return "失効済み";
+  return token.expires_at !== null && token.expires_at <= now ? "期限切れ" : "有効";
+}
+
+/** 親の失効は子の `revoked_at` に現れないので、親をたどって実際の状態を出す。 */
+function tokenState(token: ApiToken, tokens: Map<string, ApiToken>, now: string): TokenState {
+  const own = ownState(token, now);
+  if (own !== "有効") return own;
+  let parent = token.parent_token_id ? tokens.get(token.parent_token_id) : undefined;
+  while (parent) {
+    if (ownState(parent, now) !== "有効") return "親トークンが無効";
+    parent = parent.parent_token_id ? tokens.get(parent.parent_token_id) : undefined;
+  }
+  return "有効";
+}
+
+function delegationRange(token: ApiToken, projectName: (id: string) => string): string {
+  const byProject = new Map<string, Permission[]>();
+  for (const scope of token.scopes ?? []) {
+    byProject.set(scope.project_id, [...(byProject.get(scope.project_id) ?? []), scope.permission]);
+  }
+  const scopes = [...byProject].map(([id, permissions]) => `${projectName(id)}: ${permissions.join(", ")}`);
+  const keys = token.task_keys ?? [];
+  const hidden = (token.tasks?.length ?? 0) - keys.length;
+  const tasks = [...keys, ...(hidden > 0 ? [`ほか${hidden}件`] : [])];
+  return `${scopes.join(" / ")}（${tasks.length > 0 ? `タスク ${tasks.join(", ")} と子孫` : "プロジェクト全体"}）`;
+}
+
 function GrantEditor({
   session,
   principal,
@@ -29,6 +60,7 @@ function GrantEditor({
   onClose: () => void;
 }) {
   const [grants, setGrants] = useState<Grant[]>([]);
+  const [tokens, setTokens] = useState<ApiToken[]>([]);
   const [project, setProject] = useState("");
   const [permission, setPermission] = useState<Permission>("view");
   const [token, setToken] = useState<string | null>(null);
@@ -37,11 +69,15 @@ function GrantEditor({
   const path = `/principals/${principal.id}`;
 
   const reload = useCallback(async () => {
-    const reply = await api.get<{ grants: Grant[] }>(`${path}/grants`);
-    setGrants(reply.grants);
+    const [granted, issued] = await Promise.all([
+      api.get<{ grants: Grant[] }>(`${path}/grants`),
+      api.get<{ tokens: ApiToken[] }>(`${path}/tokens`),
+    ]);
+    setGrants(granted.grants);
+    setTokens(issued.tokens);
   }, [path]);
   useEffect(() => {
-    void reload();
+    reload().catch((failure: Error) => setError(failure.message));
   }, [reload]);
 
   const run = async (action: () => Promise<unknown>) => {
@@ -56,6 +92,9 @@ function GrantEditor({
 
   const projectName = (id: string | null) =>
     id === null ? "組織全体" : session.projects.find((item) => item.id === id)?.name ?? id;
+
+  const now = new Date().toISOString();
+  const tokensById = new Map(tokens.map((token) => [token.id, token]));
 
   return (
     <Modal title={`${principal.display_name} の権限と認証情報`} onClose={onClose}>
@@ -121,6 +160,38 @@ function GrantEditor({
           <code>{token}</code>
         </div>
       )}
+      <ul className="token-list" aria-label="発行済みのトークン">
+        {tokens.map((item) => {
+          const state = tokenState(item, tokensById, now);
+          const parent = item.parent_token_id ? tokensById.get(item.parent_token_id) : undefined;
+          return (
+            <li key={item.id}>
+              <div className="token-head">
+                <span>{item.name}</span>
+                {item.parent_token_id && <span className="badge">委譲 {shortTokenId(item.id)}</span>}
+                <span className="muted token-state">{state}</span>
+                {state === "有効" && (
+                  <button
+                    className="link"
+                    onClick={() => {
+                      if (window.confirm(`${item.name} を失効しますか？ここから委譲したトークンも無効になります。`)) {
+                        void run(() => api.delete(`/tokens/${item.id}`));
+                      }
+                    }}
+                  >
+                    失効
+                  </button>
+                )}
+              </div>
+              <p className="muted">
+                期限: {item.expires_at ? formatTime(item.expires_at) : "なし"}
+                {parent && ` / 委譲元: ${parent.name}`}
+              </p>
+              {item.parent_token_id && <p className="muted">範囲: {delegationRange(item, projectName)}</p>}
+            </li>
+          );
+        })}
+      </ul>
       <ErrorNote message={error} />
     </Modal>
   );

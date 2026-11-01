@@ -144,6 +144,11 @@ label.check input { width: auto; margin: 0; display: inline-block; }
 .project-list .key { margin-right: 8px; }
 .inbox li { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .task-link:hover { color: #fff; text-decoration: underline; }
+.token-list { list-style: none; margin: 8px 0; padding: 0; }
+.token-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.token-list .token-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.token-list .token-state { margin-left: auto; }
+.token-list p { margin: 2px 0 0; font-size: 12px; overflow-wrap: anywhere; }
 .secret { background: #1c2333; border: 1px solid #33415f; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
 .secret code { word-break: break-all; }
 

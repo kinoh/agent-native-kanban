@@ -35,7 +35,7 @@ cargo test
 
 `tests/scenarios.rs` が仕様9章の受け入れシナリオ A〜D に対応する。
 
-Webの回帰検証は、PythonのPlaywrightとChromiumを用意した環境で、ビルド後に `python3 web/tests/behavior.py` を実行する。API応答と変更通知を固定し、501件の一覧、外部から追加した段階、検索の競合、途中ページの失敗をブラウザで確認する。実行用の一時領域と結果は `~/.local/state/agent-native-kanban-ui-tests/` に保存する。
+Webの回帰検証は、PythonのPlaywrightとChromiumを用意した環境で、ビルド後に `python3 web/tests/behavior.py` を実行する。API応答と変更通知を固定し、501件の一覧、外部から追加した段階、検索の競合、途中ページの失敗、委譲トークンの表示と失効をブラウザで確認する。実行用の一時領域と結果は `~/.local/state/agent-native-kanban-ui-tests/` に保存する。
 
 ## 認証
 
@@ -149,6 +149,8 @@ curl -H "$H" -X DELETE "$A/tokens/<id>"
 - 親が取得した `claim_id` は、現段階の取得権限を持つ委譲トークンなら引き継げる。主体が同じなので、同じタスクを見られる委譲トークンどうしは作業権を区別しない
 - タスクを限定したトークンは、範囲内のタスクの子だけを作れる（`403 outside_delegated_tasks`）
 - 操作の主体は委譲元のまま記録し、イベントの `delegated_token_id` でどの委譲トークンの操作かを追える。発行は `token.delegated` イベントに範囲ごと残る
+
+Web UI では発行しない。組織管理者は「組織の管理」の「権限」から、主体のトークンと委譲の範囲、親まで含めた実際の状態を確認して失効できる。タスクの履歴には委譲トークンによる操作を ID の末尾8文字で示す。
 
 独立したレビューや承認が必要なら、遷移ルールの必要権限を外部の主体だけに与える。委譲はその保証を目的としない。
 

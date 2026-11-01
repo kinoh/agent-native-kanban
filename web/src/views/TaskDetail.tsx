@@ -16,6 +16,7 @@ import {
   formatTime,
   isTyping,
   reasonText,
+  shortTokenId,
 } from "../ui";
 import { MoveStage, usePrincipals } from "./common";
 
@@ -602,6 +603,14 @@ export function TaskDetail({ reference, session }: { reference: string; session:
               <li key={event.seq} className={`history-${event.category}`}>
                 <span className="muted">{formatTime(event.created_at)}</span>{" "}
                 {event.actor?.display_name ?? "システム"} が {EVENT_LABELS[event.type] ?? event.type}
+                {event.delegated_token_id && (
+                  <>
+                    {" "}
+                    <span className="badge" title={`委譲トークン ${event.delegated_token_id}`}>
+                      委譲 {shortTokenId(event.delegated_token_id)}
+                    </span>
+                  </>
+                )}
                 <span className="muted"> {historyDetail(event.type, event.data)}</span>
               </li>
             ))}

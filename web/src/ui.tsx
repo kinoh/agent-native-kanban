@@ -45,6 +45,11 @@ export function formatTime(value: string): string {
   return new Date(value).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
 }
 
+/** 履歴と管理画面で同じ委譲トークンを見分けるための短い表記。UUIDv7 は末尾が時刻に依らない。 */
+export function shortTokenId(id: string): string {
+  return id.slice(-8);
+}
+
 export function Avatar({ principal, size = 22 }: { principal: PrincipalRef; size?: number }) {
   return (
     <span

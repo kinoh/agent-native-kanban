@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::delegation::{scope_json, token_is_within};
+use super::delegation::{scope_json, token_is_within, visible_task_keys};
 use super::identity::replace_password;
 use super::{ApiJson, AppState, explicit, required_text};
 use crate::auth::{Actor, hash_password, hash_secret, new_secret, validate_password};
@@ -506,6 +506,7 @@ pub async fn list_tokens(
                     let (scopes, tasks) = scope_json(conn, &id)?;
                     token["scopes"] = scopes;
                     token["tasks"] = tasks;
+                    token["task_keys"] = json!(visible_task_keys(conn, &actor, &id)?);
                 }
                 tokens.push(token);
             }

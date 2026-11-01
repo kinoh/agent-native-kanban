@@ -32,16 +32,39 @@ work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'
 def task(i,s=stage):
     return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','work':work}
 state={'mode':'many','moved':False}
+agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_at':'2026-11-01T00:00:00.000Z','email':None}
+FUTURE='2099-01-01T00:00:00.000Z'
+def token(id,name,**fields):
+    return {'id':id,'name':name,'created_at':'2026-11-01T00:00:00.000Z','expires_at':None,'revoked_at':None,'parent_token_id':None,**fields}
+tokens=[
+    token('root-token-aaaaaaaa','main'),
+    token('live-token-bbbbbbbb','implementer',parent_token_id='root-token-aaaaaaaa',expires_at=FUTURE,scopes=[{'project_id':project['id'],'permission':'claim'},{'project_id':project['id'],'permission':'review'}],tasks=['task-1','task-2'],task_keys=['DEV-1']),
+    token('dead-token-cccccccc','revoked',parent_token_id='root-token-aaaaaaaa',expires_at=FUTURE,revoked_at='2026-11-01T00:00:00.000Z',scopes=[{'project_id':project['id'],'permission':'claim'}],tasks=[],task_keys=[]),
+    token('kids-token-dddddddd','grandchild',parent_token_id='dead-token-cccccccc',expires_at=FUTURE,scopes=[{'project_id':project['id'],'permission':'claim'}],tasks=[],task_keys=[]),
+]
 pending=[]
 requests=[]
 def route(r):
     path=r.request.url.split('/api/v1',1)[1]
     requests.append(path)
+    if r.request.method=='DELETE' and path.startswith('/tokens/'):
+        match=next(t for t in tokens if t['id']==path.rsplit('/',1)[1])
+        match['revoked_at']='2026-11-01T00:00:00.000Z'
+        r.fulfill(status=204)
+        return
     if path=='/me':
         body={'id':'human-1','kind':'human','display_name':'Auditor','email':None,'organization':{'id':'org-1','name':'Audit'},'is_org_admin':True,'grants':[{'project_id':None,'permission':'admin'}]}
     elif path=='/projects':
         body={'projects':[{**project,'stages':[stage,new_stage] if state['moved'] else [stage]}]}
     elif path=='/me/inbox': body={'requests':[]}
+    elif path=='/principals': body={'principals':[agent]}
+    elif path=='/signup-links': body={'signup_links':[]}
+    elif path=='/principals/agent-1/grants': body={'grants':[]}
+    elif path=='/principals/agent-1/tokens': body={'tokens':tokens}
+    elif path=='/tasks/DEV-1/context':
+        history=[{'seq':1,'type':'work.claimed','category':'work','actor':agent,'delegated_token_id':'live-token-bbbbbbbb','data':{},'created_at':'2026-11-01T00:00:00.000Z'},
+                 {'seq':2,'type':'work.released','category':'work','actor':agent,'delegated_token_id':None,'data':{},'created_at':'2026-11-01T00:00:00.000Z'}]
+        body={'task':task(1),'parent':None,'children':[],'dependencies':[],'dependents':[],'links':[],'comments':[],'artifacts':[],'history':history}
     elif path.startswith('/tasks?'):
         if state['mode']=='many':
             query=parse_qs(urlsplit(path).query)
@@ -123,6 +146,37 @@ try:
         page.get_by_text('page unavailable',exact=True).wait_for()
         assert page.locator('.card').count()==0
         results['partial_list_not_presented_as_complete']=True
+        state['mode']='stage'
+        page.goto(base+'/tasks/DEV-1')
+        page.get_by_text('委譲 bbbbbbbb',exact=True).wait_for()
+        history=page.locator('.history li')
+        assert history.count()==2
+        assert history.nth(1).locator('.badge').count()==0
+        assert page.locator('.history .badge').get_attribute('title')=='委譲トークン live-token-bbbbbbbb'
+        results['delegated_history']=True
+        page.goto(base+'/admin')
+        page.get_by_role('button',name='権限',exact=True).click()
+        rows=page.get_by_role('list',name='発行済みのトークン').get_by_role('listitem')
+        rows.first.wait_for()
+        def row(name): return rows.filter(has=page.get_by_text(name,exact=True))
+        assert row('main').locator('.token-state').inner_text()=='有効'
+        assert row('main').locator('.badge').count()==0
+        live=row('implementer')
+        assert live.locator('.token-state').inner_text()=='有効'
+        assert '委譲 bbbbbbbb' in live.inner_text()
+        assert '委譲元: main' in live.inner_text()
+        assert 'Audit Project: claim, review（タスク DEV-1, ほか1件 と子孫）' in live.inner_text(), live.inner_text()
+        assert row('revoked').locator('.token-state').inner_text()=='失効済み'
+        assert row('revoked').get_by_role('button',name='失効').count()==0
+        assert 'プロジェクト全体' in row('revoked').inner_text()
+        assert row('grandchild').locator('.token-state').inner_text()=='親トークンが無効'
+        assert row('grandchild').get_by_role('button',name='失効').count()==0
+        page.screenshot(path=str(STATE/'delegated-tokens.png'))
+        page.once('dialog',lambda dialog:dialog.accept())
+        with page.expect_response(lambda r:r.request.method=='DELETE' and '/tokens/root-token' in r.url):
+            row('main').get_by_role('button',name='失効').click()
+        live.get_by_text('親トークンが無効',exact=True).wait_for()
+        results['delegated_tokens']=True
         assert errors==[], errors
         results['browser_errors']=errors
         browser.close()

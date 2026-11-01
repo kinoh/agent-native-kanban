@@ -483,6 +483,33 @@ async fn operations_stay_attributed_to_the_principal_and_name_the_delegated_toke
 }
 
 #[tokio::test]
+async fn token_lists_name_only_the_limited_tasks_the_reader_can_see() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let project = app.project(&admin, "DEV").await;
+    let agent = app.agent(&admin, "agent", grants(&project, &["claim"])).await;
+    let shown = app.task(&admin, &project, &project.implement, "shown").await;
+    let hidden = app.task(&admin, &project, &project.implement, "hidden").await;
+    let claim = scopes(&project, &["claim"]);
+    let (_, token_id) = delegate(&app, &agent, claim, Some(json!([key(&shown), key(&hidden)]))).await;
+
+    let listed = app.get(&admin, &format!("/principals/{}/tokens", agent.id)).await;
+    let token = listed.body["tokens"].as_array().unwrap().iter().find(|t| t["id"] == token_id.as_str()).unwrap();
+    assert_eq!(token["task_keys"], json!([key(&shown), key(&hidden)]));
+    let mine = app.get(&agent, "/me/delegations").await;
+    assert_eq!(mine.body["delegations"][0]["task_keys"], json!([key(&shown), key(&hidden)]));
+
+    // プロジェクトの権限を失った読者には、キーを見せない。
+    let grants = app.get(&admin, &format!("/principals/{}/grants", agent.id)).await;
+    for grant in grants.body["grants"].as_array().unwrap() {
+        app.delete(&admin, &format!("/grants/{}", grant["id"].as_str().unwrap())).await;
+    }
+    let mine = app.get(&agent, "/me/delegations").await;
+    assert_eq!(mine.body["delegations"][0]["task_keys"], json!([]));
+    assert_eq!(mine.body["delegations"][0]["tasks"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn issuers_and_administrators_can_see_delegations_without_their_secrets() {
     let app = App::new();
     let admin = app.organization("Acme", "admin@acme.test").await;

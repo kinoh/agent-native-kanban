@@ -118,6 +118,7 @@ export interface HistoryEvent {
   type: string;
   category: string;
   actor: { id: string; display_name: string; kind: string } | null;
+  delegated_token_id: string | null;
   data: Record<string, unknown>;
   created_at: string;
 }
@@ -141,6 +142,19 @@ export interface InboxItem {
   created_at: string;
   task: { id: string; key: string; title: string };
   author: { id: string; display_name: string; kind: string };
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  parent_token_id: string | null;
+  /** 委譲トークンだけが持つ。 */
+  scopes?: { project_id: string; permission: Permission }[];
+  tasks?: string[];
+  task_keys?: string[];
 }
 
 export interface SignupLink {

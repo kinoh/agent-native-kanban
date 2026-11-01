@@ -68,6 +68,26 @@ pub fn scope_json(conn: &Connection, token_id: &str) -> ApiResult<(Value, Value)
     Ok((json!(scopes), json!(tasks)))
 }
 
+/// 限定されたタスクのキーのうち、閲覧者が見られるものを返す。
+pub fn visible_task_keys(conn: &Connection, actor: &Actor, token_id: &str) -> ApiResult<Vec<String>> {
+    let mut statement = conn.prepare_cached(
+        "SELECT t.project_id, t.id, p.key || '-' || t.number
+         FROM token_tasks s JOIN tasks t ON t.id = s.task_id JOIN projects p ON p.id = t.project_id
+         WHERE s.token_id = ?1 ORDER BY p.key, t.number",
+    )?;
+    let rows = statement.query_map([token_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+    })?;
+    let mut keys = Vec::new();
+    for row in rows {
+        let (project_id, task_id, key) = row?;
+        if actor.can_view_task(&project_id, &task_id) {
+            keys.push(key);
+        }
+    }
+    Ok(keys)
+}
+
 /// `token_id` が `ancestor_id` 自身か、その子孫であるか。
 pub fn token_is_within(conn: &Connection, ancestor_id: &str, token_id: &str) -> ApiResult<bool> {
     Ok(conn.query_row(
@@ -244,6 +264,7 @@ pub async fn list(State(state): State<AppState>, actor: Actor) -> ApiResult<Json
                 let (scopes, tasks) = scope_json(conn, &id)?;
                 delegation["scopes"] = scopes;
                 delegation["tasks"] = tasks;
+                delegation["task_keys"] = json!(visible_task_keys(conn, &actor, &id)?);
                 delegations.push(delegation);
             }
             Ok(Json(json!({ "delegations": delegations })))
