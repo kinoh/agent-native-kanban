@@ -15,6 +15,7 @@ import { ProjectSettings } from "./views/ProjectSettings";
 import { Signup } from "./views/Signup";
 import { TaskDetail } from "./views/TaskDetail";
 import { useLiveChanges } from "./live";
+import { chooseTheme, currentTheme, type Theme } from "./theme";
 
 export interface Session {
   me: Me;
@@ -77,6 +78,7 @@ function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloa
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(currentTheme);
   const projectsRequest = useRef(0);
 
   const reloadProjects = useCallback(async () => {
@@ -178,6 +180,28 @@ function Shell({ me, onLogout, reloadMe }: { me: Me; onLogout: () => void; reloa
         </div>
         {me.is_org_admin && <NavLink to="/admin" label="組織の管理" current={path} />}
         <div className="spacer" />
+        <div className="theme-toggle" aria-label="配色">
+          <button
+            aria-pressed={theme === "light"}
+            className={theme === "light" ? "active" : undefined}
+            onClick={() => {
+              chooseTheme("light");
+              setTheme("light");
+            }}
+          >
+            ライト
+          </button>
+          <button
+            aria-pressed={theme === "dark"}
+            className={theme === "dark" ? "active" : undefined}
+            onClick={() => {
+              chooseTheme("dark");
+              setTheme("dark");
+            }}
+          >
+            ダーク
+          </button>
+        </div>
         <div className="me">
           {me.kind === "human" ? <NavLink to="/settings" label={me.display_name} current={path} /> : <span>{me.display_name}</span>}
           <button className="link" onClick={onLogout}>
