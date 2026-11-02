@@ -175,3 +175,92 @@ async fn changing_an_approver_requires_assign_permission() {
         .await;
     assert_eq!(reply.status, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn reopening_completed_work_requires_reapproval_only_when_the_project_requires_it() {
+    let app = App::new();
+    let admin = app.organization("Acme", "admin@acme.test").await;
+    let project = app.project(&admin, "ACME").await;
+    let worker = app.agent(&admin, "Worker", worker_grants(&project)).await;
+    let approver = app
+        .agent(
+            &admin,
+            "Approver",
+            json!([{ "project_id": project.id, "permission": "view" }]),
+        )
+        .await;
+    let rules = app
+        .put(
+            &admin,
+            &format!("/projects/{}/transition-rules", project.id),
+            json!({ "rules": [{
+                "from_stage_id": project.implement, "to_stage_id": project.review,
+                "required_permission": "edit", "require_work_done": true, "require_approval": true
+            }] }),
+        )
+        .await;
+    assert_eq!(rules.status, StatusCode::OK, "{:?}", rules.body);
+    let task = app.task(&admin, &project, &project.implement, "release").await;
+    let key = task["key"].as_str().unwrap();
+    assert_eq!(
+        app.patch(
+            &admin,
+            &format!("/tasks/{key}"),
+            json!({ "version": 1, "approver_id": approver.id }),
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+
+    let current = app.view(&approver, &task).await;
+    assert_eq!(
+        app.post(
+            &approver,
+            &format!("/tasks/{key}/approve"),
+            json!({ "to_stage_id": project.review, "version": current["version"] }),
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    let claim_id = app.claim(&worker, &task).await;
+    app.post(&worker, &format!("/tasks/{key}/work/complete"), json!({ "claim_id": claim_id, "summary": "ready" })).await;
+    let reopened = app.post(&admin, &format!("/tasks/{key}/work/reopen"), json!({ "reason": "fix" })).await;
+    assert_eq!(reopened.status, StatusCode::OK, "{:?}", reopened.body);
+    let claim_id = app.claim(&worker, &task).await;
+    app.post(&worker, &format!("/tasks/{key}/work/complete"), json!({ "claim_id": claim_id, "summary": "fixed" })).await;
+    assert_eq!(app.move_to(&admin, &task, &project.review).await.code(), "transition_approval_unmet");
+
+    let current = app.view(&approver, &task).await;
+    assert_eq!(
+        app.post(
+            &approver,
+            &format!("/tasks/{key}/approve"),
+            json!({ "to_stage_id": project.review, "version": current["version"] }),
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    assert_eq!(app.move_to(&admin, &task, &project.review).await.status, StatusCode::OK);
+    assert_eq!(app.move_to(&admin, &task, &project.implement).await.status, StatusCode::OK);
+
+    let claim_id = app.claim(&worker, &task).await;
+    app.post(&worker, &format!("/tasks/{key}/work/complete"), json!({ "claim_id": claim_id, "summary": "ready again" })).await;
+    assert_eq!(
+        app.patch(
+            &admin,
+            &format!("/projects/{}", project.id),
+            json!({ "reapproval_required": false }),
+        )
+        .await
+        .status,
+        StatusCode::OK
+    );
+    let reopened = app.post(&admin, &format!("/tasks/{key}/work/reopen"), json!({ "reason": "verify" })).await;
+    assert_eq!(reopened.status, StatusCode::OK, "{:?}", reopened.body);
+    let claim_id = app.claim(&worker, &task).await;
+    app.post(&worker, &format!("/tasks/{key}/work/complete"), json!({ "claim_id": claim_id, "summary": "verified" })).await;
+    assert_eq!(app.move_to(&admin, &task, &project.review).await.status, StatusCode::OK);
+}

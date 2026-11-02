@@ -190,7 +190,7 @@ export function BoardView({ project, session }: { project: Project; session: Ses
           </section>
         ))}
       </div>
-      {creating && <CreateTask project={project} onClose={() => setCreating(false)} onCreated={() => void reload()} />}
+      {creating && <CreateTask project={project} session={session} onClose={() => setCreating(false)} onCreated={() => void reload()} />}
       {moving && <MoveStage task={moving} stages={project.stages} onClose={() => setMoving(null)} onMoved={() => void reload()} />}
     </div>
   );

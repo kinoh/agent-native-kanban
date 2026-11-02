@@ -69,6 +69,15 @@ export function canEditProject(session: Session, project: Project) {
   );
 }
 
+export function canAssignProject(session: Session, project: Project) {
+  return (
+    canAdminProject(session, project) ||
+    session.me.grants.some(
+      (grant) => grant.permission === "assign" && (grant.project_id === null || grant.project_id === project.id),
+    )
+  );
+}
+
 const OVERVIEW_COLLAPSED_LINES = 2;
 const OVERVIEW_COLLAPSED_CHARS = 160;
 
@@ -192,11 +201,13 @@ export function FilterBar({ filters, onChange }: { filters: Filters; onChange: (
 
 export function CreateTask({
   project,
+  session,
   stageId,
   onClose,
   onCreated,
 }: {
   project: Project;
+  session: Session;
   stageId?: string;
   onClose: () => void;
   onCreated: () => void;
@@ -205,12 +216,22 @@ export function CreateTask({
   const [description, setDescription] = useState("");
   const [stage, setStage] = useState(stageId ?? project.stages[0]?.id ?? "");
   const [priority, setPriority] = useState("none");
+  const [approverId, setApproverId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const principals = usePrincipals();
+  const canAssign = canAssignProject(session, project);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      await api.post("/tasks", { project_id: project.id, title, description, stage_id: stage, priority });
+      await api.post("/tasks", {
+        project_id: project.id,
+        title,
+        description,
+        stage_id: stage,
+        priority,
+        ...(approverId ? { approver_id: approverId } : {}),
+      });
       onCreated();
       onClose();
     } catch (failure) {
@@ -229,6 +250,21 @@ export function CreateTask({
           説明
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
+        {canAssign && (
+          <label>
+            承認者
+            <select value={approverId} onChange={(e) => setApproverId(e.target.value)} required={project.approver_required}>
+              <option value="">未設定</option>
+              {principals
+                .filter((principal) => principal.status === "active")
+                .map((principal) => (
+                  <option key={principal.id} value={principal.id}>
+                    {principal.display_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <div className="row">
           <label>
             業務段階
@@ -252,7 +288,7 @@ export function CreateTask({
           </label>
         </div>
         <ErrorNote message={error} />
-        <button className="primary">作成</button>
+        <button className="primary" disabled={project.approver_required && !canAssign}>タスクを作成</button>
       </form>
     </Modal>
   );

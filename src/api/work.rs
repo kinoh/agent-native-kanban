@@ -323,12 +323,13 @@ pub async fn reopen(
                 return Err(ApiError::conflict("work_not_done", "only completed work can be reopened"));
             }
             conn.execute(
-                "UPDATE tasks SET work_state = 'open', updated_at = ?1 WHERE id = ?2",
-                params![now(), task.id],
+                "UPDATE tasks SET work_state = 'open', approval_cycle = approval_cycle + ?1, updated_at = ?2 WHERE id = ?3",
+                params![i64::from(task.reapproval_required), now(), task.id],
             )?;
             emit(conn, task_event(&task, &actor, "work", "work.reopened", json!({
                 "key": task.key(),
                 "reason": reason,
+                "approval_invalidated": task.reapproval_required,
             })))?;
             finish(conn, &actor, &task.id)
         })

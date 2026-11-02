@@ -44,7 +44,7 @@ def blocker_task():
     if state['blockers_complete']:
         return task(2)
     return {**task(2),'title':'Wait for visible dependency','work':{**work,'claimable':False,'can_claim':False,'readiness':'waiting','reasons':[{'code':'blocked_by_dependencies','message':'dependent tasks are not finished','details':None}],'blockers':[{'id':'task-1','key':'DEV-1','reason':'API contract review','discarded':False}],'hidden_blockers':1}}
-state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False,'blockers_complete':False}
+state={'mode':'many','moved':False,'display_name':'Auditor','organization_name':'Audit','is_org_admin':True,'reject_profile_patch':False,'refresh_failures':0,'reject_project_patch':False,'discard_view':False,'discard_requests':[],'stages':None,'principal_work_changed':False,'blockers_complete':False,'created_task':None}
 agent={'id':'agent-1','kind':'agent','display_name':'Orchestrator','status':'active','description':'','created_by':'human-1','created_at':'2026-11-01T00:00:00.000Z','email':None}
 human={'id':'human-1','kind':'human','display_name':'Auditor','status':'active','description':'','created_by':None,'created_at':'2026-11-01T00:00:00.000Z','email':'auditor@example.test'}
 agent_child={'id':'agent-2','kind':'agent','display_name':'Builder','status':'active','description':'','created_by':'agent-1','created_at':'2026-11-01T00:00:00.000Z','email':None}
@@ -119,6 +119,10 @@ def route(r):
         return
     if r.request.method=='POST' and path=='/tasks/DEV-1/stage' and state['discard_view']:
         r.fulfill(status=409,content_type='application/json',body=json.dumps({'error':{'code':'task_discarded','message':'this task is discarded'}}))
+        return
+    if r.request.method=='POST' and path=='/tasks':
+        state['created_task']=r.request.post_data_json
+        r.fulfill(status=201,content_type='application/json',body=json.dumps(task(777)))
         return
     if r.request.method=='POST' and path=='/tasks/DEV-1/approve':
         body=r.request.post_data_json
@@ -521,6 +525,18 @@ try:
             shown.get_by_role('button',name='折りたたむ',exact=True).click()
             assert shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')==collapsed
         results['project_overview_saved_and_shown']=True
+        project['approver_required']=True
+        page.goto(base+'/projects/DEV/board')
+        page.get_by_role('button',name='タスクを作成',exact=True).click()
+        dialog=page.get_by_role('dialog',name='タスクを作成')
+        dialog.get_by_label('タイトル').fill('承認つきの新規タスク')
+        dialog.get_by_label('承認者').select_option('agent-1')
+        with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/api/v1/tasks')):
+            dialog.get_by_role('button',name='タスクを作成',exact=True).click()
+        dialog.wait_for(state='detached')
+        assert state['created_task']['approver_id']=='agent-1'
+        results['create_task_approver']={'selected_approver_sent':True}
+        project['approver_required']=False
         project['transition_rules']=[{'id':'approval-rule','from_stage_id':stage['id'],'to_stage_id':new_stage['id'],'required_permission':'edit','require_work_done':False,'require_approval':True}]
         state['approval_ui']=True
         state['approved']=False
