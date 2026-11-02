@@ -129,7 +129,7 @@ curl -H "$H" -H "$J" -d '{"claim_id":"...","summary":"...","evidence":[{"name":"
 | リソース | `GET・POST /resources`、`GET・PATCH・DELETE /resources/{id}`、`POST /resources/{id}/{acquire,release,revoke}` |
 | タスク | `GET・POST /tasks`、`GET・PATCH /tasks/{task}`、`GET /tasks/{task}/context`（プロジェクトの概要を含む）、`GET /tasks/{task}/history`、`POST /tasks/{task}/discard`、`POST /tasks/{task}/restore` |
 | 業務段階 | `POST /tasks/{task}/stage` |
-| 作業（占有者） | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete}` |
+| 作業（作業者） | `POST /tasks/{task}/work/{claim,start,pause,resume,release,transfer,complete}` |
 | 作業（編集権限） | `POST /tasks/{task}/work/{reopen,hold,unhold}` |
 | 作業（管理権限） | `POST /tasks/{task}/work/{revoke,reassign}` |
 | 記録 | `POST /tasks/{task}/comments`、`POST /tasks/{task}/artifacts`、`POST /tasks/{task}/files?role=&name=`、`GET /artifacts/{id}/content` |
@@ -199,8 +199,8 @@ Web UI では発行しない。組織管理者は「組織の管理」の「権�
 - **関係の履歴**: 過去の依存・関連・親変更イベントも参照先への現在の閲覧権限を確認する。参照先を閲覧できないイベントは文脈・履歴・変更フィード（SSEを含む）から除外し、保存済みの記録は維持する
 - **遷移ルールの履歴**: `workflow.rules_replaced` の `from`・`to` に変更前後のルール一覧を記録する（段階ID、必要権限、作業完了条件を含む）
 - **遷移ルール**: ルールのない遷移は `edit` 権限で実行できる。ルールがあれば指定の権限（`edit` の代わり）と作業完了の条件を求める
-- **作業権**: 取得ごとに新しい `claim_id` を発行する。占有者の交代後、古い `claim_id` の操作は `stale_claim` で拒否する
-- **占有の期限切れはない**。作業状態は報告された状態なので、ハートビートによる自動解放はしない。放棄された作業は管理者が `revoke`・`reassign` で解除する。占有者が無効・削除になっても、解除されるまで取得可能にしない
+- **作業権**: 取得ごとに新しい `claim_id` を発行する。作業者の交代後、古い `claim_id` の操作は `stale_claim` で拒否する
+- **占有の期限切れはない**。作業状態は報告された状態なので、ハートビートによる自動解放はしない。放棄された作業は管理者が `revoke`・`reassign` で解除する。作業者が無効・削除になっても、解除されるまで取得可能にしない
 - **主体の削除**は履歴を残す論理削除。認証情報・権限・メールアドレスは消し、ID と表示名、作業記録、担当、占有は残す
 - **リソース確保**はタスクの占有とは別の、明示的に解放する共有枠。主体の無効化・削除、タスクの完了では解放しない。放置された確保は管理者が理由を残して解除する
 - **メールアドレスはサーバー全体で一意**で、人間は1つの組織にだけ所属する

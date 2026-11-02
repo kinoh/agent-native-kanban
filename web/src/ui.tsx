@@ -32,8 +32,8 @@ const REASON_LABEL: Record<string, string> = {
   blocked_by_dependencies: "依存タスクが未完了です",
   occupied_not_started: "他の主体が取得しています",
   occupied_working: "他の主体が作業中です",
-  occupied_paused: "占有者が一時停止中です",
-  occupant_inactive: "占有者が無効になっています。管理者が解除してください",
+  occupied_paused: "作業者が一時停止中です",
+  occupant_inactive: "作業者が無効になっています。管理者が解除してください",
   state_unknown: "記録された状態を解釈できないため、取得できません",
 };
 

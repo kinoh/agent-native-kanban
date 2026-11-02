@@ -49,7 +49,7 @@ const EVENT_LABELS: Record<string, string> = {
   "work.reassigned": "管理者が作業を移管",
   "work.revoked": "管理者が占有を解除",
   "work.completed": "作業完了を報告",
-  "work.reopened": "作業を再開可能に戻した",
+  "work.reopened": "作業を差し戻した",
   "work.held": "作業を保留",
   "work.unheld": "保留を解除",
   "work.available": "取得可能になった",
@@ -70,7 +70,7 @@ const PROMPTS = {
   complete: { title: "作業完了を報告", label: "成果の要約", button: "完了を報告" },
   release: { title: "作業を解放", label: "残課題・引継ぎメモ（任意）", button: "解放" },
   hold: { title: "作業を保留", label: "保留の理由", button: "保留" },
-  reopen: { title: "作業を再開可能に戻す", label: "理由", button: "再開可能にする" },
+  reopen: { title: "作業を差し戻す", label: "理由", button: "差し戻す" },
   revoke: { title: "占有を解除", label: "解除の理由", button: "解除" },
   transfer: { title: "作業を引継ぐ", label: "引継ぎメモ（成果・判断・残課題）", button: "引継ぐ" },
   reassign: { title: "作業を移管", label: "移管の理由", button: "移管" },
@@ -185,7 +185,7 @@ function WorkPanel({
         {work.claim_id && <button onClick={() => open("complete")}>完了を報告</button>}
         {work.claim_id && <button onClick={() => open("transfer")}>引継ぐ</button>}
         {work.claim_id && <button onClick={() => open("release")}>解放</button>}
-        {canEdit && work.readiness === "done" && <button onClick={() => open("reopen")}>再開可能に戻す</button>}
+        {canEdit && work.readiness === "done" && <button onClick={() => open("reopen")}>差し戻す</button>}
         {canEdit && !work.occupant && !task.discard && task.stage.requires_work && work.hold_reason === null && work.readiness !== "done" && (
           <button onClick={() => open("hold")}>保留</button>
         )}
