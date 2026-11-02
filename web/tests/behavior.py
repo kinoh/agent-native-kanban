@@ -527,7 +527,7 @@ try:
         results['project_overview_saved_and_shown']=True
         project['approver_required']=True
         page.goto(base+'/projects/DEV/board')
-        page.get_by_role('button',name='タスクを作成',exact=True).click()
+        page.get_by_role('button',name='タスクを作成').click()
         dialog=page.get_by_role('dialog',name='タスクを作成')
         dialog.get_by_label('タイトル').fill('承認つきの新規タスク')
         dialog.get_by_label('承認者').select_option('agent-1')
