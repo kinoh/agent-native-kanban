@@ -159,7 +159,7 @@ async fn replaced_holders_cannot_use_their_old_work_right() {
 }
 
 #[tokio::test]
-async fn release_makes_work_claimable_without_touching_stage_or_assignment() {
+async fn release_makes_work_claimable_without_touching_stage_or_approver() {
     let app = App::new();
     let admin = app.organization("Acme", "admin@acme.test").await;
     let project = app.project(&admin, "ACME").await;
@@ -167,14 +167,13 @@ async fn release_makes_work_claimable_without_touching_stage_or_assignment() {
     let task = app.task(&admin, &project, &project.implement, "X").await;
     let key = task["key"].as_str().unwrap();
     let assigned = app
-        .patch(&admin, &format!("/tasks/{key}"), json!({ "version": 1, "responsible_id": admin.id }))
+        .patch(&admin, &format!("/tasks/{key}"), json!({ "version": 1, "approver_id": admin.id }))
         .await;
     assert_eq!(assigned.body["version"], 2);
 
     let claim_id = app.claim(&a, &task).await;
     let claimed = app.view(&a, &task).await;
-    assert_eq!(claimed["responsible"]["id"], admin.id.as_str());
-    assert!(claimed["assignee"].is_null());
+    assert_eq!(claimed["approver"]["id"], admin.id.as_str());
     assert_eq!(claimed["version"], 2);
 
     let released = app
@@ -182,7 +181,7 @@ async fn release_makes_work_claimable_without_touching_stage_or_assignment() {
         .await;
     assert_eq!(released.body["work"]["claimable"], true);
     assert_eq!(released.body["stage"]["id"], project.implement.as_str());
-    assert_eq!(released.body["responsible"]["id"], admin.id.as_str());
+    assert_eq!(released.body["approver"]["id"], admin.id.as_str());
     let context = app.get(&a, &format!("/tasks/{key}/context")).await;
     assert_eq!(context.body["comments"][0]["body"], "残課題あり");
 }

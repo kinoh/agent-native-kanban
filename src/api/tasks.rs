@@ -53,8 +53,7 @@ pub struct ListQuery {
     /// 取得可能で、かつ自分に取得権限がある
     can_claim: Option<bool>,
     priority: Option<String>,
-    assignee: Option<String>,
-    responsible: Option<String>,
+    approver: Option<String>,
     occupant: Option<String>,
     activity: Option<String>,
     readiness: Option<String>,
@@ -126,11 +125,8 @@ pub async fn list(
     if let Some(value) = &query.priority {
         push("t.priority = ?", SqlValue::Integer(parse_priority(value)?));
     }
-    if let Some(value) = query.assignee {
-        push("t.assignee_id = ?", SqlValue::Text(me_or_id(&actor, value)));
-    }
-    if let Some(value) = query.responsible {
-        push("t.responsible_id = ?", SqlValue::Text(me_or_id(&actor, value)));
+    if let Some(value) = query.approver {
+        push("t.approver_id = ?", SqlValue::Text(me_or_id(&actor, value)));
     }
     if let Some(value) = query.parent {
         push("t.parent_id = ?", SqlValue::Text(value));
@@ -208,8 +204,7 @@ pub struct CreateTaskRequest {
     acceptance_criteria: String,
     /// 省略すると先頭の段階に作る
     stage_id: Option<String>,
-    responsible_id: Option<String>,
-    assignee_id: Option<String>,
+    approver_id: Option<String>,
     priority: Option<String>,
     due_at: Option<String>,
     parent: Option<String>,
@@ -244,11 +239,19 @@ pub async fn create(
                     "this token can only create children of its delegated tasks",
                 ));
             }
-            if request.responsible_id.is_some() || request.assignee_id.is_some() {
+            if request.approver_id.is_some() {
                 actor.require(&request.project_id, Permission::Assign)?;
             }
-            for id in [&request.responsible_id, &request.assignee_id].into_iter().flatten() {
+            if let Some(id) = &request.approver_id {
                 require_assignable(conn, &actor.org_id, id)?;
+            }
+            let approver_required: bool = conn.query_row(
+                "SELECT approver_required FROM projects WHERE id = ?1",
+                [&request.project_id],
+                |row| row.get(0),
+            )?;
+            if approver_required && request.approver_id.is_none() {
+                return Err(ApiError::invalid("an approver is required for every task in this project"));
             }
             let stage_id: Option<String> = match &request.stage_id {
                 Some(id) => conn
@@ -285,9 +288,9 @@ pub async fn create(
             let moment = now();
             conn.execute(
                 "INSERT INTO tasks (id, org_id, project_id, number, title, description, purpose,
-                    acceptance_criteria, stage_id, responsible_id, assignee_id, priority, due_at,
+                    acceptance_criteria, stage_id, approver_id, priority, due_at,
                     parent_id, work_state, created_by, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'open', ?15, ?16, ?16)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'open', ?14, ?15, ?15)",
                 params![
                     id,
                     actor.org_id,
@@ -298,8 +301,7 @@ pub async fn create(
                     request.purpose,
                     request.acceptance_criteria,
                     stage_id,
-                    request.responsible_id,
-                    request.assignee_id,
+                    request.approver_id,
                     priority,
                     due_at,
                     parent_id,
@@ -348,9 +350,7 @@ pub struct UpdateTaskRequest {
     #[serde(default, deserialize_with = "explicit")]
     parent: Option<Option<String>>,
     #[serde(default, deserialize_with = "explicit")]
-    responsible_id: Option<Option<String>>,
-    #[serde(default, deserialize_with = "explicit")]
-    assignee_id: Option<Option<String>>,
+    approver_id: Option<Option<String>>,
 }
 
 pub fn check_version(task: &TaskRow, version: i64) -> ApiResult<()> {
@@ -392,7 +392,7 @@ pub async fn update(
             if edits_content {
                 actor.require(&task.project_id, Permission::Edit)?;
             }
-            if request.responsible_id.is_some() || request.assignee_id.is_some() {
+            if request.approver_id.is_some() {
                 actor.require(&task.project_id, Permission::Assign)?;
             }
             check_version(&task, request.version)?;
@@ -453,19 +453,22 @@ pub async fn update(
                 };
                 set("parent_id", json!(task.parent_id), json!(parent_id), optional(&parent_id))?;
             }
-            if let Some(value) = &request.responsible_id {
+            if let Some(value) = &request.approver_id {
                 if let Some(id) = value {
                     require_assignable(conn, &actor.org_id, id)?;
                 }
-                let from = task.responsible.as_ref().map(|p| p.id.clone());
-                set("responsible_id", json!(from), json!(value), optional(value))?;
-            }
-            if let Some(value) = &request.assignee_id {
-                if let Some(id) = value {
-                    require_assignable(conn, &actor.org_id, id)?;
+                if value.is_none() {
+                    let required: bool = conn.query_row(
+                        "SELECT approver_required FROM projects WHERE id = ?1",
+                        [&task.project_id],
+                        |row| row.get(0),
+                    )?;
+                    if required {
+                        return Err(ApiError::invalid("an approver is required for every task in this project"));
+                    }
                 }
-                let from = task.assignee.as_ref().map(|p| p.id.clone());
-                set("assignee_id", json!(from), json!(value), optional(value))?;
+                let from = task.approver.as_ref().map(|p| p.id.clone());
+                set("approver_id", json!(from), json!(value), optional(value))?;
             }
 
             if !changes.is_empty() {
@@ -488,6 +491,71 @@ pub async fn update(
 pub struct MoveStageRequest {
     to_stage_id: String,
     version: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApproveTransitionRequest {
+    to_stage_id: String,
+    version: i64,
+}
+
+/// 指定された承認者だけが、設定済みの遷移を承認できる。approve 権限は不要。
+pub async fn approve_transition(
+    State(state): State<AppState>,
+    actor: Actor,
+    Path(reference): Path<String>,
+    ApiJson(request): ApiJson<ApproveTransitionRequest>,
+) -> ApiResult<Json<TaskView>> {
+    state
+        .db
+        .write(move |conn| {
+            let task = resolve_task(conn, &actor, &reference)?;
+            check_version(&task, request.version)?;
+            let approver = task
+                .approver
+                .as_ref()
+                .ok_or_else(|| ApiError::conflict("approver_missing", "this task has no approver"))?;
+            if approver.id != actor.id {
+                tracing::warn!(task = %task.id, actor = %actor.id, approver = %approver.id, "rejected approval from a non-approver");
+                return Err(ApiError::forbidden("approver"));
+            }
+            let approval_required: Option<bool> = conn
+                .query_row(
+                    "SELECT require_approval FROM transition_rules
+                     WHERE from_stage_id = ?1 AND to_stage_id = ?2",
+                    params![task.stage.id, request.to_stage_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if approval_required != Some(true) {
+                return Err(ApiError::invalid("this transition does not require approval"));
+            }
+            let target_exists: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM stages WHERE id = ?1 AND project_id = ?2)",
+                params![request.to_stage_id, task.project_id],
+                |row| row.get(0),
+            )?;
+            if !target_exists {
+                return Err(ApiError::invalid("stage is not in this project"));
+            }
+            let inserted = conn.execute(
+                "INSERT OR IGNORE INTO task_approvals
+                 (id, task_id, from_stage_id, to_stage_id, approved_by, approval_cycle, approved_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![new_id(), task.id, task.stage.id, request.to_stage_id, actor.id, task.approval_cycle, now()],
+            )?;
+            if inserted > 0 {
+                emit(conn, task_event(&task, &actor, "stage", "transition.approved", json!({
+                    "key": task.key(),
+                    "from_stage_id": task.stage.id,
+                    "to_stage_id": request.to_stage_id,
+                })))?;
+                tracing::info!(task = %task.id, actor = %actor.id, to_stage = %request.to_stage_id, "transition approved");
+            }
+            Ok(Json(to_view(&load_task(conn, &task.id)?, &actor)?))
+        })
+        .await
 }
 
 /// 業務段階の変更。作業の完了や解放とは独立した明示的な操作で、ここでだけ段階が変わる。
@@ -647,15 +715,15 @@ pub async fn move_stage(
                 return Err(ApiError::invalid("the task is already in this stage"));
             }
 
-            let rule: Option<(Option<String>, bool)> = conn
+            let rule: Option<(Option<String>, bool, bool)> = conn
                 .query_row(
-                    "SELECT required_permission, require_work_done FROM transition_rules
+                    "SELECT required_permission, require_work_done, require_approval FROM transition_rules
                      WHERE from_stage_id = ?1 AND to_stage_id = ?2",
                     params![task.stage.id, request.to_stage_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()?;
-            let (required, require_done) = rule.unwrap_or((None, false));
+            let (required, require_done, require_approval) = rule.unwrap_or((None, false, false));
             let permission = match required {
                 Some(name) => Permission::parse(&name)
                     .ok_or_else(|| ApiError::internal(format!("unknown rule permission {name}")))?,
@@ -672,10 +740,39 @@ pub async fn move_stage(
                 )
                 .details(json!({ "work_state": task.work_state })));
             }
+            if require_approval {
+                if let Some(approver) = &task.approver {
+                    let approved: bool = conn.query_row(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM task_approvals
+                             WHERE task_id = ?1 AND from_stage_id = ?2 AND to_stage_id = ?3
+                               AND approved_by = ?4 AND (?5 = 0 OR approval_cycle = ?6)
+                        )",
+                        params![
+                            task.id,
+                            task.stage.id,
+                            request.to_stage_id,
+                            approver.id,
+                            task.reapproval_required,
+                            task.approval_cycle,
+                        ],
+                        |row| row.get(0),
+                    )?;
+                    if !approved {
+                        return Err(ApiError::conflict(
+                            "transition_approval_unmet",
+                            "this transition requires approval from the task approver",
+                        )
+                        .details(json!({ "approver": approver, "to_stage_id": request.to_stage_id })));
+                    }
+                } else if task.approver_required {
+                    return Err(ApiError::conflict("approver_missing", "this task has no approver"));
+                }
+            }
 
             conn.execute(
                 "UPDATE tasks SET stage_id = ?1, work_state = 'open', hold_reason = NULL,
-                    version = version + 1, updated_at = ?2 WHERE id = ?3",
+                    approval_cycle = approval_cycle + 1, version = version + 1, updated_at = ?2 WHERE id = ?3",
                 params![request.to_stage_id, now(), task.id],
             )?;
             emit(conn, task_event(&task, &actor, "stage", "stage.changed", json!({

@@ -51,6 +51,7 @@ export interface TransitionRule {
   to_stage_id: string;
   required_permission: string | null;
   require_work_done: boolean;
+  require_approval: boolean;
 }
 
 export interface Project {
@@ -58,6 +59,8 @@ export interface Project {
   key: string;
   name: string;
   description: string;
+  approver_required: boolean;
+  reapproval_required: boolean;
   stages: Stage[];
   transition_rules: TransitionRule[];
 }
@@ -93,8 +96,7 @@ export interface Task {
   purpose: string;
   acceptance_criteria: string;
   stage: Stage;
-  responsible: PrincipalRef | null;
-  assignee: PrincipalRef | null;
+  approver: PrincipalRef | null;
   priority: Priority;
   due_at: string | null;
   parent_id: string | null;
@@ -102,7 +104,15 @@ export interface Task {
   created_at: string;
   updated_at: string;
   discard: Discard | null;
+  approvals: Approval[];
   work: Work;
+}
+
+export interface Approval {
+  from_stage_id: string;
+  to_stage_id: string;
+  approved_at: string;
+  approver: PrincipalRef;
 }
 
 

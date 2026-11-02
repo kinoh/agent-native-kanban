@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Session } from "../App";
 import { navigate } from "../router";
 import type { Project, Task } from "../types";
-import { Avatar, DiscardBadge, ErrorNote, PrincipalLabel, PriorityMark, WorkBadge, formatTime, isTyping } from "../ui";
+import { DiscardBadge, ErrorNote, PrincipalLabel, PriorityMark, WorkBadge, formatTime, isTyping } from "../ui";
 import { CreateTask, EMPTY_FILTERS, FilterBar, MoveStage, ProjectOverview, ViewTabs, canAdminProject, filterQuery, useProjectTasks } from "./common";
 
 export function ListView({ project, session }: { project: Project; session: Session }) {
@@ -55,7 +55,6 @@ export function ListView({ project, session }: { project: Project; session: Sess
             <th>業務段階</th>
             <th>作業状態</th>
             <th>作業者</th>
-            <th>担当</th>
             <th>更新</th>
           </tr>
         </thead>
@@ -74,7 +73,6 @@ export function ListView({ project, session }: { project: Project; session: Sess
                 <WorkBadge work={task.work} />
               </td>
               <td>{task.work.occupant ? <PrincipalLabel principal={task.work.occupant} /> : <span className="muted">—</span>}</td>
-              <td>{task.assignee ? <Avatar principal={task.assignee} /> : <span className="muted">—</span>}</td>
               <td className="muted">{formatTime(task.updated_at)}</td>
             </tr>
           ))}

@@ -14,6 +14,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0003_token_delegation.sql"),
     include_str!("../migrations/0004_resources.sql"),
     include_str!("../migrations/0005_task_discard.sql"),
+    include_str!("../migrations/0006_task_approvals.sql"),
 ];
 
 /// 単一コネクションを直列に使う。書き込みは `BEGIN IMMEDIATE` なので、
@@ -243,5 +244,35 @@ mod tests {
         conn.execute_batch("DELETE FROM task_dependencies; DELETE FROM task_links;
             UPDATE tasks SET parent_id=NULL WHERE id='a';
             UPDATE tasks SET project_id='p2', stage_id='s2', number=3 WHERE id='b';").unwrap();
+    }
+
+    #[test]
+    fn approval_migration_keeps_responsible_as_approver_and_removes_assignee() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for sql in MIGRATIONS.iter().take(5) {
+            conn.execute_batch(sql).unwrap();
+        }
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA user_version = 5;
+            INSERT INTO organizations VALUES ('org', 'Org', 'now');
+            INSERT INTO principals (id,org_id,kind,display_name,status,created_at) VALUES ('p','org','agent','P','active','now');
+            INSERT INTO projects (id,org_id,key,name,created_by,created_at) VALUES ('project','org','ONE','One','p','now');
+            INSERT INTO stages VALUES ('stage','project','Work',0,1,'claim',0);
+            INSERT INTO tasks (id,org_id,project_id,number,title,stage_id,responsible_id,assignee_id,priority,work_state,created_by,created_at,updated_at)
+              VALUES ('task','org','project',1,'Task','stage','p','p',0,'open','p','now','now');
+        ").unwrap();
+        migrate(&mut conn).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT approver_id FROM tasks WHERE id = 'task'", [], |row| row.get::<_, String>(0)).unwrap(),
+            "p"
+        );
+        let names = conn.prepare("PRAGMA table_info(tasks)").unwrap().query_map([], |row| row.get::<_, String>(1)).unwrap()
+            .collect::<Result<Vec<_>, _>>().unwrap();
+        assert!(!names.iter().any(|name| name == "assignee_id"));
+        assert_eq!(
+            conn.query_row("SELECT approver_required, reapproval_required FROM projects WHERE id = 'project'", [], |row| {
+                Ok((row.get::<_, bool>(0)?, row.get::<_, bool>(1)?))
+            }).unwrap(),
+            (false, true)
+        );
     }
 }

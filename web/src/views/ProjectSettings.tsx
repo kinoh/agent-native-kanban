@@ -15,6 +15,7 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
   const [to, setTo] = useState("");
   const [permission, setPermission] = useState("");
   const [requireDone, setRequireDone] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
   // null は未編集。保存済みの値を表示し、他の主体の変更も反映する。
   const [overview, setOverview] = useState<string | null>(null);
   const [savingOverview, setSavingOverview] = useState(false);
@@ -75,11 +76,12 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
   const saveRules = (rules: Omit<TransitionRule, "id">[]) =>
     run(() =>
       api.put(`/projects/${project.id}/transition-rules`, {
-        rules: rules.map(({ from_stage_id, to_stage_id, required_permission, require_work_done }) => ({
+        rules: rules.map(({ from_stage_id, to_stage_id, required_permission, require_work_done, require_approval }) => ({
           from_stage_id,
           to_stage_id,
           required_permission,
           require_work_done,
+          require_approval,
         })),
       }),
     );
@@ -117,6 +119,27 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
       ) : (
         <p className="overview-text">{project.description || <span className="muted">概要は設定されていません。</span>}</p>
       )}
+      <h2>承認</h2>
+      <div className="actions">
+        <label className="check">
+          <input
+            type="checkbox"
+            disabled={!canAdmin}
+            checked={project.approver_required}
+            onChange={(e) => void run(() => api.patch(`/projects/${project.id}`, { approver_required: e.target.checked }))}
+          />
+          承認者を必須にする
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            disabled={!canAdmin}
+            checked={project.reapproval_required}
+            onChange={(e) => void run(() => api.patch(`/projects/${project.id}`, { reapproval_required: e.target.checked }))}
+          />
+          差し戻し後も承認する
+        </label>
+      </div>
       <h2>業務段階</h2>
       <table className="settings-table">
         <thead>
@@ -179,6 +202,7 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
             <span className="muted">
               {" "}権限: {rule.required_permission ?? "edit"}
               {rule.require_work_done ? "・作業完了が条件" : ""}
+              {rule.require_approval ? "・承認が必要" : ""}
             </span>
             {canAdmin && (
               <button className="link" onClick={() => void saveRules(project.transition_rules.filter((item) => item.id !== rule.id))}>
@@ -195,7 +219,7 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
             event.preventDefault();
             void saveRules([
               ...project.transition_rules,
-              { from_stage_id: from, to_stage_id: to, required_permission: permission || null, require_work_done: requireDone },
+              { from_stage_id: from, to_stage_id: to, required_permission: permission || null, require_work_done: requireDone, require_approval: requireApproval },
             ]);
           }}
         >
@@ -213,6 +237,10 @@ export function ProjectSettings({ project, session }: { project: Project; sessio
           <label className="check">
             <input type="checkbox" checked={requireDone} onChange={(e) => setRequireDone(e.target.checked)} />
             作業完了を条件にする
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={requireApproval} onChange={(e) => setRequireApproval(e.target.checked)} />
+            承認を必要にする
           </label>
           <button>ルールを追加</button>
         </form>

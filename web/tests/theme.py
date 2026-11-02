@@ -31,7 +31,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 stage = {"id": "stage-1", "name": "実装", "position": 0, "requires_work": True, "claim_permission": "claim", "is_final": False}
-project = {"id": "project-1", "key": "THEME", "name": "テーマ確認", "description": "", "stages": [stage], "transition_rules": []}
+project = {"id": "project-1", "key": "THEME", "name": "テーマ確認", "description": "", "approver_required": False, "reapproval_required": True, "stages": [stage], "transition_rules": []}
 me = {"id": "human-1", "kind": "human", "display_name": "Theme User", "email": "theme@example.test", "organization": {"id": "org-1", "name": "Theme Org"}, "is_org_admin": True, "grants": [{"project_id": None, "permission": "admin"}]}
 human = {"id": "human-1", "kind": "human", "display_name": "Theme User", "status": "active", "description": "", "created_by": None, "created_at": "2026-11-01T00:00:00.000Z", "email": "theme@example.test"}
 agent = {"id": "agent-1", "kind": "agent", "display_name": "Theme Agent", "status": "active", "description": "", "created_by": "human-1", "created_at": "2026-11-01T00:00:00.000Z", "email": None}
@@ -42,7 +42,7 @@ independent = {"id": "human-2", "kind": "human", "display_name": "Theme Independ
 
 def task():
     work = {"readiness": "waiting", "claimable": False, "can_claim": False, "claim_permission": "claim", "has_claim_permission": True, "reasons": [{"code": "blocked_by_dependencies", "message": "dependent tasks are not finished"}], "occupant": None, "activity": None, "is_working": False, "acquired_at": None, "claim_id": None, "hold_reason": None, "blockers": [{"id": "task-dependency", "key": "THEME-2", "reason": "レビュー待ち", "discarded": False}], "hidden_blockers": 1}
-    return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "responsible": None, "assignee": None, "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work}
+    return {"id": "task-1", "key": "THEME-1", "project_id": project["id"], "title": "配色を確認する", "description": "本文を読みやすく表示する。", "purpose": "両テーマを確認する。", "acceptance_criteria": "本文のコントラストを確認する。", "stage": stage, "approver": None, "approvals": [], "priority": "none", "due_at": None, "parent_id": None, "version": 1, "created_at": "2026-11-01T00:00:00.000Z", "updated_at": "2026-11-01T00:00:00.000Z", "work": work}
 
 
 def api_route(state):

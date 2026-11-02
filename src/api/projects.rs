@@ -63,7 +63,7 @@ fn require_visible(conn: &Connection, actor: &Actor, project_id: &str) -> ApiRes
 
 pub fn project_json(conn: &Connection, project_id: &str) -> ApiResult<Value> {
     let mut project = conn.query_row(
-        "SELECT id, key, name, description, created_at FROM projects WHERE id = ?1",
+        "SELECT id, key, name, description, approver_required, reapproval_required, created_at FROM projects WHERE id = ?1",
         [project_id],
         |row| {
             Ok(json!({
@@ -71,7 +71,9 @@ pub fn project_json(conn: &Connection, project_id: &str) -> ApiResult<Value> {
                 "key": row.get::<_, String>(1)?,
                 "name": row.get::<_, String>(2)?,
                 "description": row.get::<_, String>(3)?,
-                "created_at": row.get::<_, String>(4)?,
+                "approver_required": row.get::<_, bool>(4)?,
+                "reapproval_required": row.get::<_, bool>(5)?,
+                "created_at": row.get::<_, String>(6)?,
             }))
         },
     )?;
@@ -92,7 +94,7 @@ pub fn project_json(conn: &Connection, project_id: &str) -> ApiResult<Value> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut statement = conn.prepare(
-        "SELECT id, from_stage_id, to_stage_id, required_permission, require_work_done
+        "SELECT id, from_stage_id, to_stage_id, required_permission, require_work_done, require_approval
          FROM transition_rules WHERE project_id = ?1",
     )?;
     let rules = statement
@@ -103,6 +105,7 @@ pub fn project_json(conn: &Connection, project_id: &str) -> ApiResult<Value> {
                 "to_stage_id": row.get::<_, String>(2)?,
                 "required_permission": row.get::<_, Option<String>>(3)?,
                 "require_work_done": row.get::<_, bool>(4)?,
+                "require_approval": row.get::<_, bool>(5)?,
             }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -178,8 +181,14 @@ pub struct CreateProjectRequest {
     name: String,
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    approver_required: bool,
+    #[serde(default = "default_reapproval_required")]
+    reapproval_required: bool,
     stages: Vec<StageInput>,
 }
+
+fn default_reapproval_required() -> bool { true }
 
 pub async fn create(
     State(state): State<AppState>,
@@ -216,9 +225,9 @@ pub async fn create(
             }
             let id = new_id();
             conn.execute(
-                "INSERT INTO projects (id, org_id, key, name, description, created_by, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![id, actor.org_id, key, name, description, actor.id, now()],
+                "INSERT INTO projects (id, org_id, key, name, description, approver_required, reapproval_required, created_by, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![id, actor.org_id, key, name, description, request.approver_required, request.reapproval_required, actor.id, now()],
             )?;
             for (position, stage) in request.stages.iter().enumerate() {
                 insert_stage(conn, &id, position as i64, stage)?;
@@ -251,6 +260,8 @@ pub async fn get(
 pub struct UpdateProjectRequest {
     name: Option<String>,
     description: Option<String>,
+    approver_required: Option<bool>,
+    reapproval_required: Option<bool>,
 }
 
 pub async fn update(
@@ -275,9 +286,36 @@ pub async fn update(
                     params![description, id],
                 )?;
             }
+            if request.approver_required == Some(true) {
+                let without_approver: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE project_id = ?1 AND approver_id IS NULL",
+                    [&id],
+                    |row| row.get(0),
+                )?;
+                if without_approver > 0 {
+                    return Err(ApiError::conflict(
+                        "approver_required_tasks_missing",
+                        format!("{without_approver} tasks have no approver"),
+                    ));
+                }
+            }
+            if let Some(approver_required) = request.approver_required {
+                conn.execute(
+                    "UPDATE projects SET approver_required = ?1 WHERE id = ?2",
+                    params![approver_required, id],
+                )?;
+            }
+            if let Some(reapproval_required) = request.reapproval_required {
+                conn.execute(
+                    "UPDATE projects SET reapproval_required = ?1 WHERE id = ?2",
+                    params![reapproval_required, id],
+                )?;
+            }
             emit(conn, project_event(&actor.org_id, &id, &actor.id, "project.updated", json!({
                 "name": request.name,
                 "description": description,
+                "approver_required": request.approver_required,
+                "reapproval_required": request.reapproval_required,
             })))?;
             tracing::info!(project = %id, actor = %actor.id, description_changed = description.is_some(), "updated project");
             Ok(Json(project_json(conn, &id)?))
@@ -448,6 +486,8 @@ pub struct RuleInput {
     to_stage_id: String,
     required_permission: Option<Permission>,
     require_work_done: bool,
+    #[serde(default)]
+    require_approval: bool,
 }
 
 #[derive(Deserialize)]
@@ -497,15 +537,16 @@ pub async fn put_rules(
                 };
                 let inserted = conn.execute(
                     "INSERT OR IGNORE INTO transition_rules
-                     (id, project_id, from_stage_id, to_stage_id, required_permission, require_work_done)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                     (id, project_id, from_stage_id, to_stage_id, required_permission, require_work_done, require_approval)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         new_id(),
                         id,
                         rule.from_stage_id,
                         rule.to_stage_id,
                         permission,
-                        rule.require_work_done
+                        rule.require_work_done,
+                        rule.require_approval
                     ],
                 )?;
                 if inserted == 0 {

@@ -28,10 +28,11 @@ threading.Thread(target=server.serve_forever,daemon=True).start()
 base=f'http://127.0.0.1:{server.server_port}'
 stage={'id':'stage-1','name':'Implement','position':0,'requires_work':True,'claim_permission':'claim','is_final':False}
 new_stage={**stage,'id':'stage-2','name':'Review','position':1}
-project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','stages':[stage],'transition_rules':[]}
+project={'id':'project-1','key':'DEV','name':'Audit Project','description':'','approver_required':False,'reapproval_required':True,'stages':[stage],'transition_rules':[]}
 work={'readiness':'ready','claimable':True,'can_claim':True,'claim_permission':'claim','has_claim_permission':True,'reasons':[],'occupant':None,'activity':None,'is_working':False,'acquired_at':None,'claim_id':None,'hold_reason':None,'blockers':[],'hidden_blockers':0}
 def task(i,s=stage):
-    return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'responsible':None,'assignee':None,'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','discard':None,'work':work}
+    approval=state.get('approval_ui',False) and i==1
+    return {'id':f'task-{i}','key':f'DEV-{i}','project_id':project['id'],'title':f'Task {i}','description':'','purpose':'','acceptance_criteria':'','stage':s,'approver':human if approval else None,'approvals':([{'from_stage_id':stage['id'],'to_stage_id':new_stage['id'],'approved_at':'2026-11-01T00:00:00.000Z','approver':human}] if approval and state.get('approved') else []),'priority':'none','due_at':None,'parent_id':None,'version':1,'created_at':'2026-11-01T00:00:00.000Z','updated_at':'2026-11-01T00:00:00.000Z','discard':None,'work':work}
 def discard_task(i):
     final={**stage,'id':'stage-final','name':'Done','position':2,'requires_work':False,'is_final':True}
     if i==1 and state['discard_view']:
@@ -118,6 +119,12 @@ def route(r):
         return
     if r.request.method=='POST' and path=='/tasks/DEV-1/stage' and state['discard_view']:
         r.fulfill(status=409,content_type='application/json',body=json.dumps({'error':{'code':'task_discarded','message':'this task is discarded'}}))
+        return
+    if r.request.method=='POST' and path=='/tasks/DEV-1/approve':
+        body=r.request.post_data_json
+        assert body=={'to_stage_id':'stage-2','version':1}
+        state['approved']=True
+        r.fulfill(status=200,content_type='application/json',body=json.dumps(task(1)))
         return
     if r.request.method=='POST' and path in ('/tasks/DEV-1/discard','/tasks/DEV-1/restore'):
         body=r.request.post_data_json
@@ -514,6 +521,17 @@ try:
             shown.get_by_role('button',name='折りたたむ',exact=True).click()
             assert shown.locator('p').evaluate('p=>p.getBoundingClientRect().height')==collapsed
         results['project_overview_saved_and_shown']=True
+        project['transition_rules']=[{'id':'approval-rule','from_stage_id':stage['id'],'to_stage_id':new_stage['id'],'required_permission':'edit','require_work_done':False,'require_approval':True}]
+        state['approval_ui']=True
+        state['approved']=False
+        state['mode']='stage'
+        page.goto(base+'/tasks/DEV-1')
+        approve=page.get_by_role('button',name='Review を承認',exact=True)
+        with page.expect_response(lambda r:r.request.method=='POST' and r.url.endswith('/tasks/DEV-1/approve')):
+            approve.click()
+        page.get_by_role('button',name='Review を承認済み',exact=True).wait_for()
+        assert page.get_by_role('button',name='Review を承認済み',exact=True).is_disabled()
+        results['approver_transition']={'named_approver_can_approve':True,'approval_is_recorded':state['approved']}
         final_stage={**stage,'id':'stage-final','name':'Done','position':2,'requires_work':False,'is_final':True}
         state['stages']=[stage,final_stage]
         project['description']=''

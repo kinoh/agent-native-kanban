@@ -53,7 +53,6 @@ function Card({
         <span className="key">{task.key}</span>
         {task.discard && <DiscardBadge />}
         <PriorityMark priority={task.priority} />
-        {task.assignee && <Avatar principal={task.assignee} size={18} />}
       </div>
       <a
         className="card-title"

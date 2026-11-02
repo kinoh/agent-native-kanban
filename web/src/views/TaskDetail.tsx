@@ -38,6 +38,7 @@ const EVENT_LABELS: Record<string, string> = {
   "task.created": "タスクを作成",
   "task.updated": "タスクを編集",
   "stage.changed": "業務段階を変更",
+  "transition.approved": "遷移を承認",
   "task.discarded": "タスクを破棄",
   "task.restored": "破棄を取り消し",
   "work.claimed": "作業を取得",
@@ -218,6 +219,59 @@ function WorkPanel({
             <button className="primary">{PROMPTS[prompt.kind].button}</button>
           </form>
         </Modal>
+      )}
+    </section>
+  );
+}
+
+function ApprovalPanel({
+  task,
+  project,
+  session,
+  onChanged,
+  onError,
+}: {
+  task: Task;
+  project: Project;
+  session: Session;
+  onChanged: () => void;
+  onError: (message: string) => void;
+}) {
+  const rules = project.transition_rules.filter(
+    (rule) => rule.from_stage_id === task.stage.id && rule.require_approval,
+  );
+  if (!task.approver || rules.length === 0) return null;
+  const isApprover = task.approver.id === session.me.id;
+  return (
+    <section>
+      <h3>承認</h3>
+      <div className="facts">
+        <div>
+          <span>承認者</span>
+          <PrincipalLabel principal={task.approver} />
+        </div>
+      </div>
+      {isApprover && (
+        <div className="actions">
+          {rules.map((rule) => {
+            const stage = project.stages.find((item) => item.id === rule.to_stage_id);
+            const approved = task.approvals.some((approval) => approval.to_stage_id === rule.to_stage_id);
+            return (
+              <button
+                key={rule.id}
+                disabled={approved}
+                onClick={() => {
+                  void api
+                    .post(`/tasks/${task.key}/approve`, { to_stage_id: rule.to_stage_id, version: task.version })
+                    .then(onChanged)
+                    .catch((failure: Error) => onError(failure.message));
+                }}
+              >
+                {approved ? `${stage?.name ?? "遷移"} を承認済み` : `${stage?.name ?? "遷移"} を承認`}
+              </button>
+            );
+          })}
+        </div>
       )}
     </section>
   );
@@ -724,21 +778,11 @@ export function TaskDetail({ reference, session }: { reference: string; session:
           )}
         </section>
         <WorkPanel task={task} project={project} session={session} principals={principals} onChanged={() => void reload()} onError={setError} />
+        <ApprovalPanel task={task} project={project} session={session} onChanged={() => void reload()} onError={setError} />
         <section className="fields">
           <label>
-            責任者
-            <select value={task.responsible?.id ?? ""} onChange={(e) => quietUpdate({ responsible_id: e.target.value || null })}>
-              <option value="">未設定</option>
-              {principals.map((principal) => (
-                <option key={principal.id} value={principal.id}>
-                  {principal.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            担当者
-            <select value={task.assignee?.id ?? ""} onChange={(e) => quietUpdate({ assignee_id: e.target.value || null })}>
+            承認者
+            <select value={task.approver?.id ?? ""} onChange={(e) => quietUpdate({ approver_id: e.target.value || null })}>
               <option value="">未設定</option>
               {principals.map((principal) => (
                 <option key={principal.id} value={principal.id}>

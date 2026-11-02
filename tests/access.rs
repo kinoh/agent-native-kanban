@@ -587,7 +587,7 @@ async fn permissions_are_distinct_for_each_operation() {
         app.post(&viewer, &format!("/tasks/{key}/work/claim"), json!({})).await,
         app.post(&viewer, "/tasks", json!({ "project_id": project.id, "title": "t" })).await,
         app.patch(&viewer, &format!("/tasks/{key}"), json!({ "version": 1, "title": "t" })).await,
-        app.patch(&viewer, &format!("/tasks/{key}"), json!({ "version": 1, "assignee_id": viewer.id })).await,
+        app.patch(&viewer, &format!("/tasks/{key}"), json!({ "version": 1, "approver_id": viewer.id })).await,
         app.post(&viewer, &format!("/tasks/{key}/comments"), json!({ "kind": "comment", "body": "x" })).await,
         app.move_to(&viewer, &task, &project.review).await,
     ];

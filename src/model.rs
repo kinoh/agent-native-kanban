@@ -100,7 +100,7 @@ fn reason(code: &'static str, message: &str) -> BlockReason {
     BlockReason { code, message: message.to_string(), details: Value::Null }
 }
 
-/// 取得可能性の唯一の判定。業務段階の名称や担当者は材料に含めない。
+/// 取得可能性の唯一の判定。業務段階の名称や承認者は材料に含めない。
 /// 理由が1つでもあれば取得不可で、解釈できない値も理由に数える（不明なら取得可能としない）。
 pub fn availability(facts: &WorkFacts) -> Availability {
     let mut reasons = Vec::new();

@@ -211,8 +211,7 @@ async fn scenario_d_agent_survives_its_creator() {
     let assigned = app
         .patch(&founder, &format!("/tasks/{}", task["key"].as_str().unwrap()), json!({
             "version": task["version"],
-            "assignee_id": agent.id,
-            "responsible_id": agent.id,
+            "approver_id": agent.id,
         }))
         .await;
     assert_eq!(assigned.status, StatusCode::OK, "{:?}", assigned.body);
@@ -231,12 +230,12 @@ async fn scenario_d_agent_survives_its_creator() {
     assert_eq!(deleted.status, StatusCode::NO_CONTENT, "{:?}", deleted.body);
     assert_eq!(app.get(&founder, "/me").await.status, StatusCode::UNAUTHORIZED);
 
-    // エージェントの同一性・権限・担当・占有・履歴は維持される
+    // エージェントの同一性・権限・承認者設定・占有・履歴は維持される
     let me = app.get(&agent, "/me").await;
     assert_eq!(me.status, StatusCode::OK);
     assert_eq!(me.body["id"], agent.id.as_str());
     let seen = app.view(&agent, &task).await;
-    assert_eq!(seen["assignee"]["id"], agent.id.as_str());
+    assert_eq!(seen["approver"]["id"], agent.id.as_str());
     assert_eq!(seen["work"]["claim_id"], claim_id.as_str());
     let history = app.get(&agent, &format!("/tasks/{}/history", task["key"].as_str().unwrap())).await;
     assert_eq!(history.body["history"][0]["actor"]["display_name"], "Admin");

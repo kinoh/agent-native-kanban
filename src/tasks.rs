@@ -13,24 +13,22 @@ use crate::events::{EventInput, emit};
 use crate::model::{Availability, BlockReason, OccupantFacts, Permission, Readiness, WorkFacts, availability};
 
 const TASK_SELECT: &str = "
-SELECT t.id, t.org_id, t.project_id, p.key AS project_key, t.number, t.title, t.description,
+SELECT t.id, t.org_id, t.project_id, p.key AS project_key, p.approver_required, p.reapproval_required, t.number, t.title, t.description,
        t.purpose, t.acceptance_criteria, t.priority, t.due_at, t.parent_id, t.work_state,
-       t.hold_reason, t.version, t.last_claimable, t.created_by, t.created_at, t.updated_at,
+       t.hold_reason, t.version, t.approval_cycle, t.last_claimable, t.created_by, t.created_at, t.updated_at,
        t.discarded_at, t.discard_reason,
        s.id AS stage_id, s.name AS stage_name, s.position AS stage_position,
        s.requires_work, s.claim_permission, s.is_final,
        c.id AS claim_id, c.activity, c.acquired_at,
        h.id AS holder_id, h.kind AS holder_kind, h.display_name AS holder_name, h.status AS holder_status,
-       r.id AS responsible_id, r.kind AS responsible_kind, r.display_name AS responsible_name, r.status AS responsible_status,
-       a.id AS assignee_id, a.kind AS assignee_kind, a.display_name AS assignee_name, a.status AS assignee_status,
+       a.id AS approver_id, a.kind AS approver_kind, a.display_name AS approver_name, a.status AS approver_status,
        d.id AS discarder_id, d.kind AS discarder_kind, d.display_name AS discarder_name, d.status AS discarder_status
 FROM tasks t
 JOIN projects p ON p.id = t.project_id
 JOIN stages s ON s.id = t.stage_id
 LEFT JOIN claims c ON c.task_id = t.id AND c.ended_at IS NULL
 LEFT JOIN principals h ON h.id = c.holder_id
-LEFT JOIN principals r ON r.id = t.responsible_id
-LEFT JOIN principals a ON a.id = t.assignee_id
+LEFT JOIN principals a ON a.id = t.approver_id
 LEFT JOIN principals d ON d.id = t.discarded_by";
 
 #[derive(Debug, Clone, Serialize)]
@@ -74,6 +72,8 @@ pub struct TaskRow {
     pub org_id: String,
     pub project_id: String,
     pub project_key: String,
+    pub approver_required: bool,
+    pub reapproval_required: bool,
     pub number: i64,
     pub title: String,
     pub description: String,
@@ -85,6 +85,7 @@ pub struct TaskRow {
     pub work_state: String,
     pub hold_reason: Option<String>,
     pub version: i64,
+    pub approval_cycle: i64,
     pub last_claimable: bool,
     pub created_by: String,
     pub created_at: String,
@@ -95,10 +96,10 @@ pub struct TaskRow {
     pub activity: Option<String>,
     pub acquired_at: Option<String>,
     pub occupant: Option<PrincipalRef>,
-    pub responsible: Option<PrincipalRef>,
-    pub assignee: Option<PrincipalRef>,
+    pub approver: Option<PrincipalRef>,
     pub blockers: Vec<Blocker>,
     pub latest_review_result: Option<ReviewResultView>,
+    pub approvals: Vec<ApprovalRecord>,
 }
 
 fn principal_ref(row: &Row<'_>, prefix: &str) -> rusqlite::Result<Option<PrincipalRef>> {
@@ -130,6 +131,8 @@ fn task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
         org_id: row.get("org_id")?,
         project_id: row.get("project_id")?,
         project_key: row.get("project_key")?,
+        approver_required: row.get("approver_required")?,
+        reapproval_required: row.get("reapproval_required")?,
         number: row.get("number")?,
         title: row.get("title")?,
         description: row.get("description")?,
@@ -141,6 +144,7 @@ fn task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
         work_state: row.get("work_state")?,
         hold_reason: row.get("hold_reason")?,
         version: row.get("version")?,
+        approval_cycle: row.get("approval_cycle")?,
         last_claimable: row.get("last_claimable")?,
         created_by: row.get("created_by")?,
         created_at: row.get("created_at")?,
@@ -158,10 +162,10 @@ fn task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
         activity: row.get("activity")?,
         acquired_at: row.get("acquired_at")?,
         occupant: principal_ref(row, "holder")?,
-        responsible: principal_ref(row, "responsible")?,
-        assignee: principal_ref(row, "assignee")?,
+        approver: principal_ref(row, "approver")?,
         blockers: Vec::new(),
         latest_review_result: None,
+        approvals: Vec::new(),
     })
 }
 
@@ -252,6 +256,38 @@ pub fn load_tasks(
     }
     for task in &mut tasks {
         task.latest_review_result = by_task.remove(&task.id);
+    }
+    let approvals_sql = format!(
+        "SELECT a.task_id, a.from_stage_id, a.to_stage_id, a.approval_cycle, a.approved_at,
+                p.id, p.kind, p.display_name, p.status
+           FROM task_approvals a JOIN principals p ON p.id = a.approved_by
+          WHERE a.task_id IN (SELECT t.id FROM tasks t WHERE {filter})"
+    );
+    let mut statement = conn.prepare(&approvals_sql)?;
+    let approvals = statement.query_map(params_from_iter(args.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            ApprovalRecord {
+                from_stage_id: row.get(1)?,
+                to_stage_id: row.get(2)?,
+                approval_cycle: row.get(3)?,
+                approved_at: row.get(4)?,
+                approver: PrincipalRef {
+                    id: row.get(5)?,
+                    kind: row.get(6)?,
+                    display_name: row.get(7)?,
+                    status: row.get(8)?,
+                },
+            },
+        ))
+    })?;
+    let mut by_task: HashMap<String, Vec<ApprovalRecord>> = HashMap::new();
+    for approval in approvals {
+        let (task_id, approval) = approval?;
+        by_task.entry(task_id).or_default().push(approval);
+    }
+    for task in &mut tasks {
+        task.approvals = by_task.remove(&task.id).unwrap_or_default();
     }
     Ok(tasks)
 }
@@ -377,6 +413,23 @@ pub struct ReviewResultView {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ApprovalRecord {
+    pub from_stage_id: String,
+    pub to_stage_id: String,
+    pub approval_cycle: i64,
+    pub approved_at: String,
+    pub approver: PrincipalRef,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApprovalView {
+    pub from_stage_id: String,
+    pub to_stage_id: String,
+    pub approved_at: String,
+    pub approver: PrincipalRef,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskView {
     pub id: String,
@@ -387,8 +440,7 @@ pub struct TaskView {
     pub purpose: String,
     pub acceptance_criteria: String,
     pub stage: StageRef,
-    pub responsible: Option<PrincipalRef>,
-    pub assignee: Option<PrincipalRef>,
+    pub approver: Option<PrincipalRef>,
     pub priority: &'static str,
     pub due_at: Option<String>,
     pub parent_id: Option<String>,
@@ -400,6 +452,8 @@ pub struct TaskView {
     pub work: WorkView,
     /// 同じタスク上で最後に記録されたレビュー結果。レビューが未実施なら null。
     pub latest_review_result: Option<ReviewResultView>,
+    /// 現在の承認者で、現段階からの遷移に使える承認だけを返す。
+    pub approvals: Vec<ApprovalView>,
 }
 
 pub fn priority_name(value: i64) -> &'static str {
@@ -443,8 +497,7 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
         purpose: task.purpose.clone(),
         acceptance_criteria: task.acceptance_criteria.clone(),
         stage: task.stage.clone(),
-        responsible: task.responsible.clone(),
-        assignee: task.assignee.clone(),
+        approver: task.approver.clone(),
         priority: priority_name(task.priority),
         due_at: task.due_at.clone(),
         parent_id: task.parent_id.clone(),
@@ -478,6 +531,21 @@ pub fn to_view(task: &TaskRow, actor: &Actor) -> ApiResult<TaskView> {
             hidden_blockers: hidden.len(),
         },
         latest_review_result: task.latest_review_result.clone(),
+        approvals: task
+            .approvals
+            .iter()
+            .filter(|approval| {
+                approval.from_stage_id == task.stage.id
+                    && task.approver.as_ref().is_some_and(|approver| approver.id == approval.approver.id)
+                    && (!task.reapproval_required || approval.approval_cycle == task.approval_cycle)
+            })
+            .map(|approval| ApprovalView {
+                from_stage_id: approval.from_stage_id.clone(),
+                to_stage_id: approval.to_stage_id.clone(),
+                approved_at: approval.approved_at.clone(),
+                approver: approval.approver.clone(),
+            })
+            .collect(),
     })
 }
 
